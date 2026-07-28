@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DietPlanController;
 use App\Http\Controllers\Api\MealController;
 use App\Http\Controllers\Api\MenuController;
+use App\Http\Controllers\Api\MicronutrientController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\TipController;
@@ -32,6 +33,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/meals/{meal}', [MealController::class, 'destroy']);
 
     Route::get('/dashboard/today', [DashboardController::class, 'today']);
+    Route::get('/dashboard/micronutrients', [MicronutrientController::class, 'index']);
     Route::get('/progress/weight', [ProgressController::class, 'weight']);
 
     Route::get('/menus', [MenuController::class, 'index']);

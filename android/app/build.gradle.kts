@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -5,6 +6,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Forzar build fuera de Laragon (evita AccessDeniedException en Windows).
+layout.buildDirectory.set(
+    File(
+        System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"),
+        "DietaIA-android-build/app",
+    ),
+)
 
 val localProps = Properties().apply {
     val localFile = rootProject.file("local.properties")

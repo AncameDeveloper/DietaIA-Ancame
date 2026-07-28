@@ -1,5 +1,7 @@
 package com.dietaia.app.ui
 
+import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +15,7 @@ import com.dietaia.app.data.GoogleAuthRequest
 import com.dietaia.app.data.LoginRequest
 import com.dietaia.app.data.MealCreateRequest
 import com.dietaia.app.data.MenuGenerateRequest
+import com.dietaia.app.data.MicronutrientsResponse
 import com.dietaia.app.data.RegisterRequest
 import com.dietaia.app.data.ShoppingListItemDto
 import com.dietaia.app.data.ShoppingListRequest
@@ -22,6 +25,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.HttpException
 
 class AppViewModel : ViewModel() {
     private val api get() = ApiClient.create()
@@ -34,10 +41,21 @@ class AppViewModel : ViewModel() {
     var busyLabel by mutableStateOf<String?>(null)
         private set
     var error by mutableStateOf<String?>(null)
+    /** Aviso no bloqueante (p. ej. micronutrientes no disponibles). */
+    var softNotice by mutableStateOf<String?>(null)
         private set
     var message by mutableStateOf<String?>(null)
         private set
+
+    /** Se pone a true cuando la API responde 401: la Nav debe ir a Login. */
+    var requireLogin by mutableStateOf(false)
+        private set
+
     var dashboard by mutableStateOf<DashboardResponse?>(null)
+    var micronutrients by mutableStateOf<MicronutrientsResponse?>(null)
+    var microRange by mutableStateOf("7days")
+        private set
+    var microGroup by mutableStateOf("all")
         private set
     var dietPlans by mutableStateOf<List<DietPlanDto>>(emptyList())
         private set
@@ -54,14 +72,45 @@ class AppViewModel : ViewModel() {
     var tips by mutableStateOf<List<TipDto>>(emptyList())
         private set
 
+    init {
+        ApiClient.setUnauthorizedHandler {
+            viewModelScope.launch {
+                handleUnauthorized()
+            }
+        }
+    }
+
     fun applyAuthToken(value: String) {
         token = value
         ApiClient.setToken(value)
+        requireLogin = false
     }
 
     fun clearFeedback() {
         error = null
+        softNotice = null
         message = null
+    }
+
+    fun consumeRequireLogin() {
+        requireLogin = false
+    }
+
+    private fun handleUnauthorized() {
+        token = null
+        ApiClient.setToken(null)
+        dashboard = null
+        micronutrients = null
+        dietPlans = emptyList()
+        tips = emptyList()
+        dailyMenu = null
+        weeklyMenu = null
+        menu = null
+        error = null
+        softNotice = null
+        message = null
+        requireLogin = true
+        endBusy()
     }
 
     private fun beginBusy(messages: List<String>) {
@@ -84,6 +133,36 @@ class AppViewModel : ViewModel() {
         busyJob = null
         busyLabel = null
         loading = false
+    }
+
+    private fun ensureAuthed(): Boolean {
+        val t = token ?: ApiClient.currentToken()
+        if (t.isNullOrBlank()) {
+            handleUnauthorized()
+            return false
+        }
+        if (token == null) {
+            applyAuthToken(t)
+        }
+        return true
+    }
+
+    private fun reportError(e: Exception) {
+        if (e is HttpException && e.code() == 401) {
+            handleUnauthorized()
+            return
+        }
+        softNotice = null
+        error = ApiClient.humanizeError(e)
+    }
+
+    /** Fallos no críticos: no pintan el error rojo de pantalla completa. */
+    private fun reportSoftFailure(e: Exception, fallback: String) {
+        if (e is HttpException && e.code() == 401) {
+            handleUnauthorized()
+            return
+        }
+        softNotice = ApiClient.humanizeError(e).takeIf { it.isNotBlank() } ?: fallback
     }
 
     fun login(email: String, password: String, onSuccess: (String) -> Unit) {
@@ -137,31 +216,69 @@ class AppViewModel : ViewModel() {
     fun logout(onDone: () -> Unit) {
         viewModelScope.launch {
             try {
-                api.logout()
+                if (!ApiClient.currentToken().isNullOrBlank()) {
+                    api.logout()
+                }
             } catch (_: Exception) {
             }
             token = null
             ApiClient.setToken(null)
+            dashboard = null
+            micronutrients = null
             onDone()
         }
     }
 
     fun loadDashboard() {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(listOf("Cargando tu día…"))
             error = null
+            softNotice = null
             try {
                 dashboard = api.dashboard()
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
+                endBusy()
+                return@launch
+            }
+            try {
+                micronutrients = api.micronutrients(microRange, microGroup)
+            } catch (e: Exception) {
+                micronutrients = null
+                reportSoftFailure(e, "No se pudieron cargar los micronutrientes.")
             } finally {
                 endBusy()
             }
         }
     }
 
+    fun updateMicroRange(range: String) {
+        microRange = if (range == "today") "today" else "7days"
+        reloadMicronutrients()
+    }
+
+    fun updateMicroGroup(group: String) {
+        microGroup = group
+        reloadMicronutrients()
+    }
+
+    private fun reloadMicronutrients() {
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            try {
+                micronutrients = api.micronutrients(microRange, microGroup)
+                softNotice = null
+            } catch (e: Exception) {
+                micronutrients = null
+                reportSoftFailure(e, "No se pudieron cargar los micronutrientes.")
+            }
+        }
+    }
+
     fun createMeal(description: String, mealType: String, onDone: () -> Unit) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(
                 listOf(
                     "Analizando la comida…",
@@ -178,7 +295,40 @@ class AppViewModel : ViewModel() {
                 message = res.message ?: if (count <= 1) "Comida registrada" else "$count comidas registradas"
                 onDone()
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
+    fun analyzeMealPhoto(context: Context, uri: Uri, mealType: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            beginBusy(
+                listOf(
+                    "Subiendo la foto…",
+                    "Analizando el plato con IA…",
+                    "Estimando calorías y nutrientes…",
+                    "Casi listo…",
+                ),
+            )
+            error = null
+            message = null
+            try {
+                val resolver = context.contentResolver
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw IllegalStateException("No se pudo leer la imagen.")
+                val mime = resolver.getType(uri) ?: "image/jpeg"
+                val body = bytes.toRequestBody(mime.toMediaTypeOrNull())
+                val part = MultipartBody.Part.createFormData("photo", "comida.jpg", body)
+                val typeBody = mealType.toRequestBody("text/plain".toMediaTypeOrNull())
+                val confirmBody = "1".toRequestBody("text/plain".toMediaTypeOrNull())
+                api.analyzePhoto(part, typeBody, confirmBody)
+                message = "Comida registrada desde la foto"
+                onDone()
+            } catch (e: Exception) {
+                reportError(e)
             } finally {
                 endBusy()
             }
@@ -187,6 +337,7 @@ class AppViewModel : ViewModel() {
 
     fun deleteMeal(mealId: Int) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(listOf("Eliminando comida…"))
             error = null
             message = null
@@ -194,8 +345,15 @@ class AppViewModel : ViewModel() {
                 api.deleteMeal(mealId)
                 message = "Comida eliminada"
                 dashboard = api.dashboard()
+                try {
+                    micronutrients = api.micronutrients(microRange, microGroup)
+                    softNotice = null
+                } catch (e: Exception) {
+                    micronutrients = null
+                    reportSoftFailure(e, "No se pudieron actualizar los micronutrientes.")
+                }
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
             } finally {
                 endBusy()
             }
@@ -204,11 +362,12 @@ class AppViewModel : ViewModel() {
 
     fun loadDiets() {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(listOf("Cargando planes…"))
             try {
                 dietPlans = api.dietPlans()
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
             } finally {
                 endBusy()
             }
@@ -217,12 +376,13 @@ class AppViewModel : ViewModel() {
 
     fun selectDiet(id: Int) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(listOf("Activando plan…"))
             try {
                 api.selectDiet(DietSelectRequest(id))
                 message = "Plan seleccionado"
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
             } finally {
                 endBusy()
             }
@@ -231,6 +391,7 @@ class AppViewModel : ViewModel() {
 
     fun suggestDiet() {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(
                 listOf(
                     "Revisando tu perfil…",
@@ -244,7 +405,7 @@ class AppViewModel : ViewModel() {
                 message = "Plan sugerido por IA"
                 dietPlans = api.dietPlans()
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
             } finally {
                 endBusy()
             }
@@ -253,6 +414,7 @@ class AppViewModel : ViewModel() {
 
     fun generateMenu(horizon: String) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(
                 listOf(
                     "Analizando tu plan y objetivos…",
@@ -270,7 +432,7 @@ class AppViewModel : ViewModel() {
                     dailyMenu = created
                 }
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
             } finally {
                 endBusy()
             }
@@ -279,6 +441,7 @@ class AppViewModel : ViewModel() {
 
     fun loadLatestMenu(horizon: String? = null) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             try {
                 if (horizon == null || horizon == "daily") {
                     dailyMenu = api.latestMenu("daily")
@@ -291,13 +454,17 @@ class AppViewModel : ViewModel() {
                     "daily" -> dailyMenu ?: weeklyMenu
                     else -> dailyMenu ?: weeklyMenu ?: api.latestMenu()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (e is HttpException && e.code() == 401) {
+                    handleUnauthorized()
+                }
             }
         }
     }
 
     fun loadShoppingList(horizon: String, menu: WeeklyMenuDto?) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             beginBusy(listOf("Preparando la lista de la compra…", "Consolidando ingredientes…"))
             shoppingError = null
             shoppingItems = emptyList()
@@ -316,7 +483,11 @@ class AppViewModel : ViewModel() {
                     shoppingError = "No se pudieron extraer ingredientes de este menú."
                 }
             } catch (e: Exception) {
-                shoppingError = e.message ?: "No se pudo generar la lista de la compra."
+                if (e is HttpException && e.code() == 401) {
+                    handleUnauthorized()
+                } else {
+                    shoppingError = ApiClient.humanizeError(e)
+                }
             } finally {
                 endBusy()
             }
@@ -330,6 +501,7 @@ class AppViewModel : ViewModel() {
 
     fun loadTips(forceRefresh: Boolean = false) {
         viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
             if (forceRefresh) {
                 beginBusy(
                     listOf(
@@ -346,7 +518,7 @@ class AppViewModel : ViewModel() {
             try {
                 tips = api.tips(refresh = forceRefresh).tips
             } catch (e: Exception) {
-                error = e.message
+                reportError(e)
             } finally {
                 endBusy()
             }

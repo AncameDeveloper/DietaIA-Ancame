@@ -55,7 +55,7 @@ fun AiAssistantSheet(
         ) {
             Text("Asistente IA", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Registra una comida con IA o accede a tips y sugerencias.",
+                "Registra una comida con IA o accede a consejos y sugerencias.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

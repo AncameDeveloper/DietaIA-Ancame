@@ -1,5 +1,7 @@
 package com.dietaia.app.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -7,6 +9,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -21,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -39,6 +43,7 @@ import com.dietaia.app.ui.screens.MealScreen
 import com.dietaia.app.ui.screens.MenusScreen
 import com.dietaia.app.ui.screens.RegisterScreen
 import com.dietaia.app.ui.screens.TipsScreen
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -50,12 +55,57 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
     val nav = rememberNavController()
     val loggedIn = vm.token != null
     var showAiAssistant by remember { mutableStateOf(false) }
+    var sessionBootstrapped by remember { mutableStateOf(false) }
 
+    // Esperar DataStore y aplicar token ANTES de cargar pantallas autenticadas.
+    LaunchedEffect(Unit) {
+        val stored = runCatching { tokenStore.token.first() }.getOrNull()
+        if (!stored.isNullOrBlank()) {
+            ApiClient.setToken(stored)
+            vm.applyAuthToken(stored)
+        }
+        sessionBootstrapped = true
+    }
+
+    // Si el token se actualiza después (p. ej. otro proceso), reaplicar.
     LaunchedEffect(savedToken) {
+        if (!sessionBootstrapped) return@LaunchedEffect
         if (!savedToken.isNullOrBlank() && vm.token == null) {
             ApiClient.setToken(savedToken)
             vm.applyAuthToken(savedToken!!)
         }
+    }
+
+    // 401 / sesión caducada → Login limpio.
+    LaunchedEffect(vm.requireLogin) {
+        if (vm.requireLogin) {
+            tokenStore.clear()
+            showAiAssistant = false
+            nav.navigate("login") {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+            vm.consumeRequireLogin()
+        }
+    }
+
+    // Tras restaurar token, salir de Login automáticamente.
+    LaunchedEffect(loggedIn, sessionBootstrapped) {
+        if (!sessionBootstrapped) return@LaunchedEffect
+        val route = nav.currentBackStackEntry?.destination?.route
+        if (loggedIn && route in setOf("login", "register", null)) {
+            nav.navigate("dashboard") {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    if (!sessionBootstrapped) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
     }
 
     val items = listOf(
@@ -63,7 +113,7 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
         Triple("meals", "Comida", Icons.Default.Add),
         Triple("diets", "Dietas", Icons.Default.Restaurant),
         Triple("menus", "Menús", Icons.Default.Restaurant),
-        Triple("tips", "Tips", Icons.Default.Lightbulb),
+        Triple("tips", "Consejos", Icons.Default.Lightbulb),
     )
 
     val backStack by nav.currentBackStackEntryAsState()
@@ -151,9 +201,15 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                 LaunchedEffect(Unit) { vm.loadDashboard() }
                 DashboardScreen(
                     state = vm.dashboard,
+                    micronutrients = vm.micronutrients,
+                    microRange = vm.microRange,
+                    microGroup = vm.microGroup,
                     loading = vm.loading,
                     error = vm.error,
+                    softNotice = vm.softNotice,
                     onRefresh = { vm.loadDashboard() },
+                    onMicroRange = { vm.updateMicroRange(it) },
+                    onMicroGroup = { vm.updateMicroGroup(it) },
                     onDeleteMeal = { vm.deleteMeal(it) },
                     onLogout = {
                         vm.logout {
@@ -171,6 +227,11 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                     message = vm.message,
                     onSubmitText = { text, type ->
                         vm.createMeal(text, type) { }
+                    },
+                    onSubmitPhoto = { uri, type ->
+                        vm.analyzeMealPhoto(context, uri, type) {
+                            vm.loadDashboard()
+                        }
                     },
                 )
             }

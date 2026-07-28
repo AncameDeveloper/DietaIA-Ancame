@@ -64,6 +64,27 @@ data class SummaryDto(
     val micros: Map<String, Double>? = null,
 )
 
+data class MicronutrientsResponse(
+    val range: String,
+    val from: String,
+    val to: String,
+    val days_counted: Int,
+    val micros: Map<String, Double>? = null,
+    val items: List<MicronutrientItemDto> = emptyList(),
+    val groups: Map<String, String> = emptyMap(),
+    val info: String? = null,
+)
+
+data class MicronutrientItemDto(
+    val key: String,
+    val label: String,
+    val group: String,
+    val value: Double,
+    val target: Double,
+    val unit: String,
+    val pct: Double,
+)
+
 data class TargetsDto(
     val calories: Double? = null,
     val protein_g: Double? = null,
