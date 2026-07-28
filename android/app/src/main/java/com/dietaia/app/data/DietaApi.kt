@@ -26,13 +26,23 @@ interface DietaApi {
     suspend fun logout()
 
     @GET("dashboard/today")
-    suspend fun dashboard(): DashboardResponse
+    suspend fun dashboard(@Query("date") date: String? = null): DashboardResponse
 
     @GET("dashboard/micronutrients")
     suspend fun micronutrients(
         @Query("range") range: String = "7days",
         @Query("group") group: String = "all",
+        @Query("date") date: String? = null,
     ): MicronutrientsResponse
+
+    @GET("progress/weight")
+    suspend fun weightProgress(@Query("days") days: Int = 90): WeightProgressResponse
+
+    @GET("profile")
+    suspend fun profile(): UserDto
+
+    @GET("user")
+    suspend fun me(): UserDto
 
     @GET("diet-plans")
     suspend fun dietPlans(): List<DietPlanDto>

@@ -20,7 +20,9 @@ import com.dietaia.app.data.RegisterRequest
 import com.dietaia.app.data.ShoppingListItemDto
 import com.dietaia.app.data.ShoppingListRequest
 import com.dietaia.app.data.TipDto
+import com.dietaia.app.data.UserDto
 import com.dietaia.app.data.WeeklyMenuDto
+import com.dietaia.app.data.WeightProgressResponse
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -29,6 +31,8 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 class AppViewModel : ViewModel() {
     private val api get() = ApiClient.create()
@@ -57,6 +61,13 @@ class AppViewModel : ViewModel() {
         private set
     var microGroup by mutableStateOf("all")
         private set
+    /** Fecha del día mostrado en Hoy (YYYY-MM-DD). */
+    var selectedDate by mutableStateOf(LocalDate.now().format(ISO_DATE))
+        private set
+    var currentUser by mutableStateOf<UserDto?>(null)
+        private set
+    var weightProgress by mutableStateOf<WeightProgressResponse?>(null)
+        private set
     var dietPlans by mutableStateOf<List<DietPlanDto>>(emptyList())
         private set
     var menu by mutableStateOf<WeeklyMenuDto?>(null)
@@ -72,6 +83,10 @@ class AppViewModel : ViewModel() {
     var tips by mutableStateOf<List<TipDto>>(emptyList())
         private set
 
+    companion object {
+        private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+    }
+
     init {
         ApiClient.setUnauthorizedHandler {
             viewModelScope.launch {
@@ -84,6 +99,10 @@ class AppViewModel : ViewModel() {
         token = value
         ApiClient.setToken(value)
         requireLogin = false
+    }
+
+    private fun rememberUser(user: UserDto?) {
+        if (user != null) currentUser = user
     }
 
     fun clearFeedback() {
@@ -101,6 +120,8 @@ class AppViewModel : ViewModel() {
         ApiClient.setToken(null)
         dashboard = null
         micronutrients = null
+        currentUser = null
+        weightProgress = null
         dietPlans = emptyList()
         tips = emptyList()
         dailyMenu = null
@@ -172,6 +193,7 @@ class AppViewModel : ViewModel() {
             try {
                 val res = api.login(LoginRequest(email, password))
                 applyAuthToken(res.token)
+                rememberUser(res.user)
                 onSuccess(res.token)
             } catch (e: Exception) {
                 error = ApiClient.humanizeError(e)
@@ -188,6 +210,7 @@ class AppViewModel : ViewModel() {
             try {
                 val res = api.loginWithGoogle(GoogleAuthRequest(idToken))
                 applyAuthToken(res.token)
+                rememberUser(res.user)
                 onSuccess(res.token)
             } catch (e: Exception) {
                 error = ApiClient.humanizeError(e)
@@ -204,6 +227,7 @@ class AppViewModel : ViewModel() {
             try {
                 val res = api.register(RegisterRequest(name, email, password, password))
                 applyAuthToken(res.token)
+                rememberUser(res.user)
                 onSuccess(res.token)
             } catch (e: Exception) {
                 error = ApiClient.humanizeError(e)
@@ -225,7 +249,35 @@ class AppViewModel : ViewModel() {
             ApiClient.setToken(null)
             dashboard = null
             micronutrients = null
+            currentUser = null
+            weightProgress = null
             onDone()
+        }
+    }
+
+    fun shiftSelectedDate(days: Long) {
+        val next = LocalDate.parse(selectedDate, ISO_DATE).plusDays(days)
+        val capped = minOf(next, LocalDate.now())
+        selectedDate = capped.format(ISO_DATE)
+        loadDashboard()
+    }
+
+    fun updateSelectedDate(iso: String) {
+        val day = iso.take(10)
+        val parsed = runCatching { LocalDate.parse(day, ISO_DATE) }.getOrNull() ?: return
+        val capped = minOf(parsed, LocalDate.now()).format(ISO_DATE)
+        if (capped == selectedDate) return
+        selectedDate = capped
+        loadDashboard()
+    }
+
+    fun goToToday() {
+        val today = LocalDate.now().format(ISO_DATE)
+        if (selectedDate == today) {
+            loadDashboard()
+        } else {
+            selectedDate = today
+            loadDashboard()
         }
     }
 
@@ -236,14 +288,15 @@ class AppViewModel : ViewModel() {
             error = null
             softNotice = null
             try {
-                dashboard = api.dashboard()
+                dashboard = api.dashboard(selectedDate)
+                dashboard?.date?.take(10)?.let { if (it.isNotBlank()) selectedDate = it }
             } catch (e: Exception) {
                 reportError(e)
                 endBusy()
                 return@launch
             }
             try {
-                micronutrients = api.micronutrients(microRange, microGroup)
+                micronutrients = api.micronutrients(microRange, microGroup, selectedDate)
             } catch (e: Exception) {
                 micronutrients = null
                 reportSoftFailure(e, "No se pudieron cargar los micronutrientes.")
@@ -267,7 +320,7 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             if (!ensureAuthed()) return@launch
             try {
-                micronutrients = api.micronutrients(microRange, microGroup)
+                micronutrients = api.micronutrients(microRange, microGroup, selectedDate)
                 softNotice = null
             } catch (e: Exception) {
                 micronutrients = null
@@ -344,9 +397,9 @@ class AppViewModel : ViewModel() {
             try {
                 api.deleteMeal(mealId)
                 message = "Comida eliminada"
-                dashboard = api.dashboard()
+                dashboard = api.dashboard(selectedDate)
                 try {
-                    micronutrients = api.micronutrients(microRange, microGroup)
+                    micronutrients = api.micronutrients(microRange, microGroup, selectedDate)
                     softNotice = null
                 } catch (e: Exception) {
                     micronutrients = null
@@ -368,6 +421,33 @@ class AppViewModel : ViewModel() {
                 dietPlans = api.dietPlans()
             } catch (e: Exception) {
                 reportError(e)
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
+    fun loadProfile() {
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            try {
+                currentUser = runCatching { api.profile() }.getOrElse { api.me() }
+            } catch (e: Exception) {
+                reportSoftFailure(e, "No se pudo cargar el perfil.")
+            }
+        }
+    }
+
+    fun loadWeightProgress(days: Int = 90) {
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            beginBusy(listOf("Cargando progreso…"))
+            error = null
+            try {
+                weightProgress = api.weightProgress(days)
+            } catch (e: Exception) {
+                weightProgress = null
+                reportSoftFailure(e, "No se pudo cargar el progreso.")
             } finally {
                 endBusy()
             }

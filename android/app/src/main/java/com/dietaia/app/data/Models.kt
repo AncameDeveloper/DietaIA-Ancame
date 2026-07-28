@@ -85,6 +85,19 @@ data class MicronutrientItemDto(
     val pct: Double,
 )
 
+data class WeightProgressResponse(
+    val days: Int = 90,
+    val count: Int = 0,
+    val min: Double = 0.0,
+    val max: Double = 0.0,
+    val items: List<WeightPointDto> = emptyList(),
+)
+
+data class WeightPointDto(
+    val date: String,
+    val weight: Double,
+)
+
 data class TargetsDto(
     val calories: Double? = null,
     val protein_g: Double? = null,
