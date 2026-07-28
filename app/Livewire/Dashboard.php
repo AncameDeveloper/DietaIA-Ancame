@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Models\DailySummary;
 use App\Models\Meal;
 use App\Services\DailySummaryService;
 use App\Services\NutritionAiService;
@@ -42,10 +43,18 @@ class Dashboard extends Component
 
     public int $waterGlasses = 0;
 
+    /** @var array<string, mixed>|null */
+    public ?array $nutritionContext = null;
+
     public function mount(): void
     {
         $this->date = now()->toDateString();
         $this->loadWaterGlasses();
+
+        // Fallback si Livewire JS falla en el navegador: /dashboard?assistant=1
+        if (request()->boolean('assistant')) {
+            $this->openQuickAssistant();
+        }
     }
 
     public function updatedDate(): void
@@ -96,13 +105,12 @@ class Dashboard extends Component
         $summary->update(['water_glasses' => $this->waterGlasses]);
     }
 
-    public function openQuickAssistant(?string $mode = null): void
+    public function openQuickAssistant(): void
     {
         $this->resetQuickAssistant(keepOpen: true);
-        if (in_array($mode, ['register', 'suggest'], true)) {
-            $this->assistantMode = $mode;
-        }
+        $this->assistantMode = 'register';
         $this->showQuickAssistant = true;
+        $this->ensureNutritionContext();
     }
 
     public function setAssistantMode(string $mode): void
@@ -117,11 +125,42 @@ class Dashboard extends Component
         $this->quickPreview = null;
         $this->suggestResult = null;
         $this->quickPhoto = null;
+        if ($mode === 'suggest') {
+            $this->ensureNutritionContext();
+        }
+    }
+
+    private function ensureNutritionContext(): void
+    {
+        if ($this->nutritionContext !== null) {
+            return;
+        }
+
+        try {
+            $this->nutritionContext = app(NutritionAiService::class)
+                ->buildRecentNutritionContext(auth()->user()->load(['profile', 'activeDietAssignment.dietPlan']));
+        } catch (\Throwable $e) {
+            report($e);
+            $this->nutritionContext = null;
+        }
     }
 
     public function closeQuickAssistant(): void
     {
         $this->resetQuickAssistant();
+    }
+
+    public function deleteMeal(int $mealId, DailySummaryService $summaries): void
+    {
+        $meal = Meal::query()
+            ->where('user_id', auth()->id())
+            ->findOrFail($mealId);
+
+        $eatenOn = $meal->eaten_on;
+        $meal->delete();
+        $summaries->rebuild(auth()->user(), $eatenOn);
+
+        session()->flash('status', 'Comida eliminada.');
     }
 
     public function analyzeQuickEntry(NutritionAiService $ai): void
@@ -255,8 +294,9 @@ class Dashboard extends Component
             ->reject(fn ($item) => ($item['id'] ?? null) === $suggestionId)
             ->values()
             ->all();
-        $this->quickStatus = 'Insertada en el plan del '.$targetDate.'.';
-        session()->flash('status', 'Sugerencia insertada en tu plan del '.$targetDate.'.');
+        $dateLabel = \App\Support\Labels::date($targetDate);
+        $this->quickStatus = 'Insertada en el plan del '.$dateLabel.'.';
+        session()->flash('status', 'Sugerencia insertada en tu plan del '.$dateLabel.'.');
     }
 
     private function persistMealPayload(array $preview, string $eatenOn, DailySummaryService $summaries, ?string $fallbackDescription = null): void
@@ -308,13 +348,24 @@ class Dashboard extends Component
         $this->quickError = '';
         $this->quickStatus = '';
         $this->quickLoading = false;
+        if (! $keepOpen) {
+            $this->nutritionContext = null;
+        }
         $this->resetValidation();
     }
 
-    public function render(DailySummaryService $summaries, NutritionAiService $ai)
+    public function render(DailySummaryService $summaries)
     {
         $user = auth()->user()->load(['profile', 'activeDietAssignment.dietPlan']);
-        $summary = $summaries->rebuild($user, $this->date);
+        $summary = DailySummary::query()
+            ->where('user_id', $user->id)
+            ->whereDate('summary_date', $this->date)
+            ->first();
+
+        if (! $summary) {
+            $summary = $summaries->rebuild($user, $this->date);
+        }
+
         $meals = Meal::query()
             ->where('user_id', $user->id)
             ->whereDate('eaten_on', $this->date)
@@ -335,9 +386,7 @@ class Dashboard extends Component
             'fat_g' => (float) ($user->profile?->fat_target_g ?? 0),
         ];
 
-        $nutritionContext = $this->showQuickAssistant
-            ? $ai->buildRecentNutritionContext($user)
-            : null;
+        $nutritionContext = $this->showQuickAssistant ? $this->nutritionContext : null;
 
         return view('livewire.dashboard', compact('user', 'summary', 'meals', 'mealsByType', 'targets', 'nutritionContext'));
     }

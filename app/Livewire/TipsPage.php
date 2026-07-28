@@ -13,16 +13,25 @@ class TipsPage extends Component
 {
     public array $tips = [];
 
-    public function mount(NutritionAiService $ai): void
+    public bool $fromCache = false;
+
+    public function mount(): void
     {
-        $payload = $ai->tips(auth()->user()->load(['profile', 'activeDietAssignment.dietPlan']));
-        $this->tips = $payload['tips'] ?? [];
+        $cached = NutritionAiService::cachedTips(auth()->id());
+        if ($cached !== null) {
+            $this->tips = $cached['tips'] ?? [];
+            $this->fromCache = true;
+        }
     }
 
     public function refreshTips(NutritionAiService $ai): void
     {
-        $payload = $ai->tips(auth()->user()->load(['profile', 'activeDietAssignment.dietPlan']));
+        $payload = $ai->tips(
+            auth()->user()->load(['profile', 'activeDietAssignment.dietPlan']),
+            forceRefresh: true
+        );
         $this->tips = $payload['tips'] ?? [];
+        $this->fromCache = false;
         session()->flash('status', 'Consejos actualizados.');
     }
 

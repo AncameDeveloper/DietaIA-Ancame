@@ -413,7 +413,12 @@ PROMPT;
     public function generateMenu(User $user, string $horizon = 'daily'): array
     {
         $profile = $user->profile;
-        $assignment = $user->activeDietAssignment()->with('dietPlan')->first();
+        $assignment = $user->relationLoaded('activeDietAssignment')
+            ? $user->activeDietAssignment
+            : $user->activeDietAssignment()->with('dietPlan')->first();
+        if ($assignment && ! $assignment->relationLoaded('dietPlan')) {
+            $assignment->load('dietPlan');
+        }
         $plan = $assignment?->dietPlan;
 
         $context = json_encode([
@@ -445,17 +450,48 @@ Responde SOLO JSON:
     }
   ]
 }
-Incluye exactamente {$days} día(s).
+Incluye exactamente {$days} día(s). Sé conciso en descriptions (máx. 12 palabras).
 PROMPT;
 
         return $this->requestJson($user, 'generate_menu_'.$horizon, $prompt);
     }
 
-    public function tips(User $user): array
+    public static function tipsCacheKey(int $userId): string
     {
+        return 'dietaia:tips:user:'.$userId;
+    }
+
+    /** @return array{tips: array}|null */
+    public static function cachedTips(int $userId): ?array
+    {
+        $cached = cache()->get(self::tipsCacheKey($userId));
+
+        return is_array($cached) ? $cached : null;
+    }
+
+    public function tips(User $user, bool $forceRefresh = false): array
+    {
+        $cacheKey = self::tipsCacheKey((int) $user->id);
+        $ttlMinutes = max(5, (int) config('services.gemini.cache_tips_minutes', 45));
+
+        if (! $forceRefresh) {
+            $cached = cache()->get($cacheKey);
+            if (is_array($cached) && isset($cached['tips'])) {
+                return $cached;
+            }
+        }
+
         $profile = $user->profile;
-        $assignment = $user->activeDietAssignment()->with('dietPlan')->first();
-        $recent = $user->meals()->latest('eaten_on')->limit(5)->get(['title', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'eaten_on']);
+        $assignment = $user->relationLoaded('activeDietAssignment')
+            ? $user->activeDietAssignment
+            : $user->activeDietAssignment()->with('dietPlan')->first();
+        if ($assignment && ! $assignment->relationLoaded('dietPlan')) {
+            $assignment->load('dietPlan');
+        }
+        $recent = $user->meals()
+            ->latest('eaten_on')
+            ->limit(5)
+            ->get(['title', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'eaten_on']);
 
         $context = json_encode([
             'profile' => $profile?->only(['goal', 'calorie_target', 'activity_level', 'restrictions']),
@@ -470,7 +506,13 @@ Responde SOLO JSON: {"tips":[{"title":"string","body":"string"}]}
 Incluye un disclaimer de que no sustituye consejo médico.
 PROMPT;
 
-        return $this->requestJson($user, 'tips', $prompt);
+        $result = $this->requestJson($user, 'tips', $prompt);
+        $payload = [
+            'tips' => $result['tips'] ?? [],
+        ];
+        cache()->put($cacheKey, $payload, now()->addMinutes($ttlMinutes));
+
+        return $payload;
     }
 
     private function localFoodContext(string $description): string
@@ -504,22 +546,22 @@ PROMPT;
         }
 
         $preferred = config('services.gemini.model', 'gemini-flash-latest');
+        // Pocos fallbacks: evita cascadas de varios minutos si un modelo falla.
         $models = array_values(array_unique(array_filter([
             $preferred,
             'gemini-flash-latest',
-            'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
         ])));
 
         $parts = array_merge([['text' => $prompt]], $extraParts);
         $lastStatus = null;
         $lastBody = null;
+        $timeout = max(10, (int) config('services.gemini.timeout', 28));
 
         foreach ($models as $model) {
             try {
-                $response = Http::timeout(45)
+                $response = Http::timeout($timeout)
+                    ->connectTimeout(8)
                     ->withHeaders(['Content-Type' => 'application/json'])
                     ->post(
                         "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}",
@@ -615,14 +657,19 @@ PROMPT;
         $terms = collect(preg_split('/[\s,;.+]+/u', Str::lower($description)) ?: [])
             ->filter(fn ($t) => mb_strlen($t) > 2)
             ->unique()
+            ->take(8)
             ->values();
 
         $matched = collect();
-        foreach ($terms as $term) {
-            $food = Food::query()->where('name', 'like', '%'.$term.'%')->first();
-            if ($food && ! $matched->contains('id', $food->id)) {
-                $matched->push($food);
-            }
+        if ($terms->isNotEmpty()) {
+            $matched = Food::query()
+                ->where(function ($q) use ($terms) {
+                    foreach ($terms as $term) {
+                        $q->orWhere('name', 'like', '%'.$term.'%');
+                    }
+                })
+                ->limit(5)
+                ->get();
         }
 
         if ($matched->isEmpty()) {

@@ -54,6 +54,9 @@
             flex-shrink: 0;
             display: block;
         }
+        .brand-mark-lg { width: 4.25rem; height: 4.25rem; }
+        .brand-mark-sm { width: 1.85rem; height: 1.85rem; }
+        .brand-static { cursor: default; }
         .brand-text-wrap {
             display: inline-flex;
             align-items: center;
@@ -68,6 +71,8 @@
             line-height: 1;
             color: #0f172a;
         }
+        .brand-name-lg { font-size: 2rem; }
+        .brand-name-sm { font-size: 1.1rem; }
         .brand-name .brand-ia {
             color: #10b981;
         }
@@ -85,6 +90,25 @@
             text-transform: uppercase;
             line-height: 1;
         }
+        .auth-brand {
+            display: flex;
+            justify-content: center;
+            margin-bottom: .85rem;
+        }
+        .auth-brand .brand {
+            flex-direction: column;
+            text-align: center;
+            gap: .75rem;
+        }
+        .auth-brand .brand-text-wrap {
+            justify-content: center;
+            flex-direction: column;
+            gap: .45rem;
+        }
+        .auth-lead {
+            text-align: center;
+            margin: 0 0 1.1rem;
+        }
         .nav-links { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
         .nav-links a, .btn {
             text-decoration: none; color: var(--ink); background: #fff;
@@ -94,6 +118,19 @@
         }
         .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
         .btn-ghost { background: transparent; }
+        .btn-block { width: 100%; justify-content: center; box-sizing: border-box; }
+        .btn-google {
+            gap: .65rem; background: #fff; color: #3c4043; border-color: #dadce0;
+            font-weight: 600; margin-bottom: .25rem;
+        }
+        .btn-google:hover { background: #f8f9fa; }
+        .auth-divider {
+            display: flex; align-items: center; gap: .75rem;
+            margin: 1rem 0; color: var(--muted); font-size: .82rem;
+        }
+        .auth-divider::before, .auth-divider::after {
+            content: ""; flex: 1; height: 1px; background: var(--line);
+        }
         .card {
             background: var(--card); border: 1px solid var(--line); border-radius: 16px;
             padding: 1.1rem 1.2rem; margin-bottom: 1rem;
@@ -127,9 +164,69 @@
         .progress > span { display: block; height: 100%; background: var(--accent); }
         .meal-row {
             display: flex; justify-content: space-between; gap: 1rem; padding: .7rem 0;
-            border-bottom: 1px solid var(--line);
+            border-bottom: 1px solid var(--line); align-items: center;
         }
         .meal-row:last-child { border-bottom: 0; }
+        .meal-row-actions {
+            display: flex; align-items: center; gap: .65rem; flex-shrink: 0;
+        }
+        .btn-icon-danger {
+            border: 1px solid #f0c9c9;
+            background: #fff5f5;
+            color: #b42318;
+            width: 2.1rem;
+            height: 2.1rem;
+            border-radius: .55rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+        }
+        .btn-icon-danger:hover { background: #fee4e2; }
+        .date-control {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            padding: .3rem .35rem .3rem .75rem;
+            border: 1px solid var(--line);
+            border-radius: .65rem;
+            background: #fff;
+            margin: 0;
+            width: auto;
+        }
+        .date-control .date-text {
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+        }
+        .date-picker-trigger {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            border: 0;
+            border-radius: .45rem;
+            background: var(--accent-2);
+            color: var(--accent);
+            cursor: pointer;
+            padding: 0;
+            flex-shrink: 0;
+        }
+        .date-picker-trigger:hover { filter: brightness(.97); }
+        .date-control input[type="date"].date-input-sr {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+            opacity: 0;
+        }
         .auth-wrap { max-width: 420px; margin: 3rem auto; }
         .disclaimer { font-size: .8rem; color: var(--muted); margin-top: 1.5rem; }
         .fab-ai {
@@ -147,14 +244,15 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            z-index: 40;
+            z-index: 9999;
+            pointer-events: auto;
         }
         .fab-ai:hover { filter: brightness(1.05); }
         .modal-backdrop {
             position: fixed;
             inset: 0;
             background: rgba(28, 43, 36, .45);
-            z-index: 50;
+            z-index: 10000;
         }
         .modal-dialog {
             position: fixed;
@@ -168,7 +266,7 @@
             border: 1px solid var(--line);
             border-radius: 18px;
             padding: 1.2rem 1.25rem 1.35rem;
-            z-index: 60;
+            z-index: 10001;
             box-shadow: 0 20px 50px rgba(28, 43, 36, .22);
         }
         .modal-dialog-lg { width: min(720px, calc(100vw - 2rem)); }
@@ -369,6 +467,65 @@
             font-weight: 700;
             color: var(--accent);
         }
+        .ai-busy {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 12000;
+            align-items: center;
+            justify-content: center;
+            background: rgba(28, 43, 36, .42);
+            padding: 1rem;
+        }
+        .ai-busy-card {
+            width: min(420px, 100%);
+            background: #fff;
+            border-radius: 1rem;
+            border: 1px solid var(--line);
+            box-shadow: 0 18px 50px rgba(28, 43, 36, .22);
+            padding: 1.35rem 1.4rem;
+            text-align: center;
+        }
+        .ai-spinner {
+            width: 2.4rem;
+            height: 2.4rem;
+            margin: 0 auto .85rem;
+            border-radius: 999px;
+            border: 3px solid #d7e0d9;
+            border-top-color: var(--accent);
+            animation: ai-spin .8s linear infinite;
+        }
+        .ai-busy-title {
+            margin: 0;
+            font-weight: 700;
+            font-size: 1.05rem;
+        }
+        .ai-busy-msg {
+            margin: .45rem 0 0;
+            color: var(--muted);
+            min-height: 1.4em;
+        }
+        .ai-busy-bar {
+            margin-top: 1rem;
+            height: 6px;
+            border-radius: 999px;
+            background: #e7eee9;
+            overflow: hidden;
+        }
+        .ai-busy-bar > span {
+            display: block;
+            height: 100%;
+            width: 40%;
+            border-radius: 999px;
+            background: var(--accent);
+            animation: ai-bar 1.4s ease-in-out infinite;
+        }
+        .is-dimmed { opacity: .55; pointer-events: none; transition: opacity .2s ease; }
+        @keyframes ai-spin { to { transform: rotate(360deg); } }
+        @keyframes ai-bar {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(320%); }
+        }
         @media (max-width: 640px) {
             .fab-ai-label { right: 1rem; bottom: 1rem; font-size: .85rem; padding: 0 .9rem; }
             .fab-text { max-width: 11rem; white-space: normal; line-height: 1.15; text-align: left; }
@@ -381,20 +538,7 @@
     <div class="shell">
         @if(auth()->check())
             <nav class="nav">
-                <a class="brand" href="{{ route('dashboard') }}" aria-label="DietaIA by Ancame — Ir al inicio">
-                    <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                        <rect width="48" height="48" rx="14" fill="#ecfdf5"/>
-                        <path d="M24 8c-7.4 8.1-11.2 14.8-11.2 21.2 0 6.2 4.9 11.1 11.2 11.1s11.2-5 11.2-11.1C35.2 22.8 31.4 16.1 24 8z" fill="#10b981"/>
-                        <path d="M24 12.2c1.8 4.2 4.7 8.4 4.7 12.8 0 2.7-2.1 4.8-4.7 4.8" stroke="#065f46" stroke-width="2" stroke-linecap="round" opacity=".55"/>
-                        <path d="M33.5 11.5l1.1 2.6 2.6 1.1-2.6 1.1-1.1 2.6-1.1-2.6-2.6-1.1 2.6-1.1 1.1-2.6z" fill="#34d399"/>
-                        <path d="M37.8 18.2l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7.7-1.6z" fill="#6ee7b7"/>
-                        <path d="M30.8 7.8l.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55 1.25-.55.55-1.25z" fill="#a7f3d0"/>
-                    </svg>
-                    <span class="brand-text-wrap">
-                        <span class="brand-name">Dieta<span class="brand-ia">IA</span></span>
-                        <span class="brand-badge">by Ancame</span>
-                    </span>
-                </a>
+                <x-brand-logo link />
                 <div class="nav-links">
                     <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'is-active' : '' }}">Hoy</a>
                     <a href="{{ route('progress') }}" class="{{ request()->routeIs('progress') ? 'is-active' : '' }}">Progreso</a>
@@ -423,5 +567,68 @@
         <p class="disclaimer">DietaIA ofrece orientación general con IA y no sustituye consejo médico ni nutricional profesional.</p>
     </div>
     @livewireScripts
+    <script>
+        (function () {
+            const timers = new WeakMap();
+
+            function parseMessages(el) {
+                try {
+                    const raw = el.getAttribute('data-messages');
+                    const list = raw ? JSON.parse(raw) : null;
+                    return Array.isArray(list) && list.length ? list : ['Procesando…'];
+                } catch (e) {
+                    return ['Procesando…'];
+                }
+            }
+
+            function startBusy(el) {
+                if (timers.has(el)) return;
+                const msgs = parseMessages(el);
+                const msgEl = el.querySelector('.ai-busy-msg');
+                if (!msgEl) return;
+                let i = 0;
+                msgEl.textContent = msgs[0];
+                const id = setInterval(function () {
+                    if (msgs.length < 2) return;
+                    i = (i + 1) % msgs.length;
+                    msgEl.textContent = msgs[i];
+                }, 2400);
+                timers.set(el, id);
+            }
+
+            function stopBusy(el) {
+                const id = timers.get(el);
+                if (id) clearInterval(id);
+                timers.delete(el);
+            }
+
+            function syncBusyNodes() {
+                document.querySelectorAll('[data-ai-busy]').forEach(function (el) {
+                    const visible = window.getComputedStyle(el).display !== 'none';
+                    if (visible) startBusy(el);
+                    else stopBusy(el);
+                });
+            }
+
+            const mo = new MutationObserver(syncBusyNodes);
+            mo.observe(document.documentElement, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ['style', 'class'],
+            });
+            document.addEventListener('DOMContentLoaded', syncBusyNodes);
+            document.addEventListener('livewire:navigated', syncBusyNodes);
+            if (window.Livewire) {
+                document.addEventListener('livewire:init', function () {
+                    Livewire.hook('commit', ({ succeed, fail }) => {
+                        syncBusyNodes();
+                        succeed(() => syncBusyNodes());
+                        fail(() => syncBusyNodes());
+                    });
+                });
+            }
+        })();
+    </script>
 </body>
 </html>

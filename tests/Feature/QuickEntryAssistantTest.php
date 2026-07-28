@@ -30,7 +30,7 @@ class QuickEntryAssistantTest extends TestCase
         $this->actingAs($user)
             ->get('/dashboard')
             ->assertOk()
-            ->assertSee('Hablar con NutriAI', false)
+            ->assertSee('Asistente IA', false)
             ->assertSee('fab-ai', false)
             ->assertSee('Calorías restantes', false)
             ->assertSee('Desayuno', false)

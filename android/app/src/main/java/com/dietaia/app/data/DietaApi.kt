@@ -3,11 +3,14 @@ package com.dietaia.app.data
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
+import retrofit2.http.Path
 import retrofit2.http.PUT
+import retrofit2.http.Query
 
 interface DietaApi {
     @POST("register")
@@ -15,6 +18,9 @@ interface DietaApi {
 
     @POST("login")
     suspend fun login(@Body body: LoginRequest): AuthResponse
+
+    @POST("auth/google")
+    suspend fun loginWithGoogle(@Body body: GoogleAuthRequest): AuthResponse
 
     @POST("logout")
     suspend fun logout()
@@ -34,6 +40,9 @@ interface DietaApi {
     @POST("meals")
     suspend fun createMeal(@Body body: MealCreateRequest): MealDto
 
+    @DELETE("meals/{id}")
+    suspend fun deleteMeal(@Path("id") id: Int): Map<String, String>
+
     @Multipart
     @POST("meals/analyze-photo")
     suspend fun analyzePhoto(
@@ -49,7 +58,7 @@ interface DietaApi {
     suspend fun latestMenu(): WeeklyMenuDto?
 
     @GET("tips")
-    suspend fun tips(): TipsResponse
+    suspend fun tips(@Query("refresh") refresh: Boolean = false): TipsResponse
 
     @PUT("profile")
     suspend fun updateProfile(@Body body: ProfileUpdateRequest): UserDto

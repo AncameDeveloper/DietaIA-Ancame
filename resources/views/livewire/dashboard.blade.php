@@ -7,7 +7,24 @@
                 · objetivo {{ $targets['calories'] }} kcal
             </p>
         </div>
-        <input type="date" wire:model.live="date" style="width:auto;margin:0">
+        <div class="date-control" title="Fecha">
+            <span class="date-text">{{ \App\Support\Labels::date($date) }}</span>
+            <button
+                type="button"
+                class="date-picker-trigger"
+                title="Abrir calendario"
+                aria-label="Abrir calendario"
+                onclick="(function(btn){var i=btn.parentElement.querySelector('input[type=date]');if(i.showPicker){i.showPicker()}else{i.focus();i.click()}})(this)"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+            </button>
+            <input type="date" class="date-input-sr" wire:model.live="date" lang="es-ES" tabindex="-1">
+        </div>
     </div>
 
     <div class="grid grid-4">
@@ -122,9 +139,27 @@
                                 @endif
                             </div>
                         </div>
-                        <div style="text-align:right">
-                            <strong>{{ round($meal->calories) }} kcal</strong>
-                            <div class="muted">P {{ round($meal->protein_g) }} · C {{ round($meal->carbs_g) }} · G {{ round($meal->fat_g) }}</div>
+                        <div class="meal-row-actions">
+                            <div style="text-align:right">
+                                <strong>{{ round($meal->calories) }} kcal</strong>
+                                <div class="muted">P {{ round($meal->protein_g) }} · C {{ round($meal->carbs_g) }} · G {{ round($meal->fat_g) }}</div>
+                            </div>
+                            <button
+                                type="button"
+                                class="btn-icon-danger"
+                                wire:click="deleteMeal({{ $meal->id }})"
+                                wire:confirm="¿Eliminar esta comida? Esta acción no se puede deshacer."
+                                title="Eliminar comida"
+                                aria-label="Eliminar comida"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 @empty
@@ -134,18 +169,27 @@
         @endforeach
     </div>
 
-    <button
-        type="button"
+    <a
+        href="{{ route('dashboard', ['assistant' => 1]) }}"
         class="fab-ai fab-ai-label"
-        wire:click="openQuickAssistant"
-        title="Hablar con NutriAI"
-        aria-label="Hablar con NutriAI"
+        wire:click.prevent="openQuickAssistant"
+        title="Asistente IA"
+        aria-label="Asistente IA"
     >
         <span class="fab-spark">✨</span>
-        <span class="fab-text">Hablar con NutriAI</span>
-    </button>
+        <span class="fab-text">Asistente IA</span>
+    </a>
 
     @if ($showQuickAssistant)
+        <x-ai-busy
+            targets="analyzeQuickEntry,requestSuggestions,confirmQuickEntry,acceptSuggestion"
+            :messages="[
+                'Analizando tus datos…',
+                'Consultando al asistente nutricional…',
+                'Preparando el resultado…',
+                'Casi listo…',
+            ]"
+        />
         <div class="modal-backdrop" wire:click="closeQuickAssistant"></div>
         <div class="modal-dialog modal-dialog-lg" role="dialog" aria-modal="true" aria-labelledby="quick-ai-title">
             <div class="nav" style="margin:0 0 1rem">
@@ -207,7 +251,7 @@
                     <div class="card" style="margin-bottom:0;background:var(--accent-2)">
                         <div class="nav" style="margin:0 0 .5rem">
                             <strong>{{ $quickPreview['title'] }}</strong>
-                            <span class="muted">{{ $quickPreview['meal_type_label'] ?? $quickPreview['meal_type'] }} · {{ $date }}</span>
+                            <span class="muted">{{ $quickPreview['meal_type_label'] ?? $quickPreview['meal_type'] }} · {{ \App\Support\Labels::date($date) }}</span>
                         </div>
                         @if (!empty($quickPreview['description']))
                             <p class="muted" style="margin-top:0">{{ $quickPreview['description'] }}</p>
@@ -318,7 +362,7 @@
                         <div class="card" style="background:var(--accent-2)">
                             <div class="nav" style="margin:0 0 .4rem">
                                 <strong>{{ $suggestion['title'] ?? 'Sugerencia' }}</strong>
-                                <span class="muted">{{ $suggestion['meal_type_label'] ?? '' }} · {{ $suggestion['target_date'] ?? '' }}</span>
+                                <span class="muted">{{ $suggestion['meal_type_label'] ?? '' }} · {{ \App\Support\Labels::date($suggestion['target_date'] ?? null) }}</span>
                             </div>
                             <p class="muted" style="margin-top:0">{{ $suggestion['description'] ?? '' }}</p>
                             @if (!empty($suggestion['reason']))

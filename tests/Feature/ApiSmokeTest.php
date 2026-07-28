@@ -50,11 +50,17 @@ class ApiSmokeTest extends TestCase
             'use_ai' => true,
         ]);
         $meal->assertCreated();
+        $mealId = $meal->json('id');
 
         $this->withToken($token)
             ->getJson('/api/dashboard/today')
             ->assertOk()
             ->assertJsonStructure(['summary', 'targets', 'meals', 'disclaimer']);
+
+        $this->withToken($token)
+            ->deleteJson('/api/meals/'.$mealId)
+            ->assertOk()
+            ->assertJson(['message' => 'Eliminada']);
 
         $this->withToken($token)
             ->postJson('/api/menus/generate', ['horizon' => 'daily'])

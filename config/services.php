@@ -38,6 +38,16 @@ return [
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-flash-latest'),
+        'timeout' => (int) env('GEMINI_TIMEOUT', 28),
+        'cache_tips_minutes' => (int) env('GEMINI_CACHE_TIPS_MINUTES', 45),
+    ],
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', env('APP_URL').'/auth/google/callback'),
+        // Opcional: Client ID de Android si difiere del Web client ID (audience del id_token).
+        'android_client_id' => env('GOOGLE_ANDROID_CLIENT_ID'),
     ],
 
 ];

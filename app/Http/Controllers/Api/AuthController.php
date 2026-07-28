@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Profile;
 use App\Models\User;
+use App\Services\GoogleAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -45,6 +47,13 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
+        $existing = User::query()->where('email', $credentials['email'])->first();
+        if ($existing && blank($existing->password)) {
+            throw ValidationException::withMessages([
+                'email' => ['Esta cuenta usa Google. Continúa con Google.'],
+            ]);
+        }
+
         if (! Auth::attempt($credentials)) {
             throw ValidationException::withMessages([
                 'email' => ['Credenciales incorrectas.'],
@@ -59,6 +68,40 @@ class AuthController extends Controller
             'user' => $user->load(['profile', 'activeDietAssignment.dietPlan']),
             'token' => $token,
         ]);
+    }
+
+    public function google(Request $request, GoogleAuthService $googleAuth): JsonResponse
+    {
+        $data = $request->validate([
+            'id_token' => ['required', 'string'],
+        ]);
+
+        try {
+            $payload = $googleAuth->verifyIdToken($data['id_token']);
+            $user = $googleAuth->findOrCreateFromGoogle(
+                googleId: $payload['sub'],
+                email: $payload['email'],
+                name: $payload['name'],
+                avatar: $payload['picture'],
+                emailVerified: (bool) ($payload['email_verified'] ?? false),
+            );
+            $token = $googleAuth->issueApiToken($user);
+
+            return response()->json([
+                'user' => $user,
+                'token' => $token,
+            ]);
+        } catch (RuntimeException $e) {
+            throw ValidationException::withMessages([
+                'id_token' => [$e->getMessage()],
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'No se pudo autenticar con Google.',
+            ], 500);
+        }
     }
 
     public function logout(Request $request): JsonResponse

@@ -98,11 +98,20 @@
                 <h2 style="margin:0">Consejos de IA personalizados</h2>
                 <p class="muted" style="margin:.25rem 0 0">Según tu ritmo, objetivo y racha actual</p>
             </div>
-            <button type="button" class="btn" wire:click="refreshAiTips" wire:loading.attr="disabled">
+            <button type="button" class="btn" wire:click="refreshAiTips" wire:loading.attr="disabled" wire:target="refreshAiTips">
                 <span wire:loading.remove wire:target="refreshAiTips">Actualizar consejos</span>
                 <span wire:loading wire:target="refreshAiTips">Generando…</span>
             </button>
         </div>
+        <x-ai-busy
+            targets="refreshAiTips"
+            :messages="[
+                'Analizando tu progreso…',
+                'Generando consejos personalizados…',
+                'Afinando recomendaciones…',
+                'Casi listo…',
+            ]"
+        />
         @if ($aiSummary)
             <div class="alert">{{ $aiSummary }}</div>
         @endif

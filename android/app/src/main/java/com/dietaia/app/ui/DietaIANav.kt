@@ -3,9 +3,11 @@ package com.dietaia.app.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -15,9 +17,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Modifier.modifier
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -27,6 +31,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dietaia.app.data.ApiClient
 import com.dietaia.app.data.TokenStore
+import com.dietaia.app.ui.screens.AiAssistantSheet
 import com.dietaia.app.ui.screens.DashboardScreen
 import com.dietaia.app.ui.screens.DietsScreen
 import com.dietaia.app.ui.screens.LoginScreen
@@ -44,11 +49,12 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
     val savedToken by tokenStore.token.collectAsState(initial = null)
     val nav = rememberNavController()
     val loggedIn = vm.token != null
+    var showAiAssistant by remember { mutableStateOf(false) }
 
     LaunchedEffect(savedToken) {
         if (!savedToken.isNullOrBlank() && vm.token == null) {
             ApiClient.setToken(savedToken)
-            vm.setToken(savedToken!!)
+            vm.applyAuthToken(savedToken!!)
         }
     }
 
@@ -60,15 +66,17 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
         Triple("tips", "Tips", Icons.Default.Lightbulb),
     )
 
+    val backStack by nav.currentBackStackEntryAsState()
+    val currentRoute = backStack?.destination?.route
+    val showFab = loggedIn && currentRoute in setOf("dashboard", "meals", "diets", "menus", "tips")
+
     Scaffold(
         bottomBar = {
             if (loggedIn) {
-                val backStack by nav.currentBackStackEntryAsState()
-                val current = backStack?.destination?.route
                 NavigationBar {
                     items.forEach { (route, label, icon) ->
                         NavigationBarItem(
-                            selected = current == route,
+                            selected = currentRoute == route,
                             onClick = {
                                 nav.navigate(route) {
                                     popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -82,7 +90,19 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                     }
                 }
             }
-        }
+        },
+        floatingActionButton = {
+            if (showFab) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        vm.clearFeedback()
+                        showAiAssistant = true
+                    },
+                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                    text = { Text("Asistente IA") },
+                )
+            }
+        },
     ) { padding ->
         NavHost(
             navController = nav,
@@ -93,6 +113,12 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                 LoginScreen(
                     onLogin = { email, password ->
                         vm.login(email, password) { token ->
+                            scope.launch { tokenStore.save(token) }
+                            nav.navigate("dashboard") { popUpTo("login") { inclusive = true } }
+                        }
+                    },
+                    onGoogleLogin = { idToken ->
+                        vm.loginWithGoogle(idToken) { token ->
                             scope.launch { tokenStore.save(token) }
                             nav.navigate("dashboard") { popUpTo("login") { inclusive = true } }
                         }
@@ -110,6 +136,12 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                             nav.navigate("dashboard") { popUpTo("login") { inclusive = true } }
                         }
                     },
+                    onGoogleLogin = { idToken ->
+                        vm.loginWithGoogle(idToken) { token ->
+                            scope.launch { tokenStore.save(token) }
+                            nav.navigate("dashboard") { popUpTo("login") { inclusive = true } }
+                        }
+                    },
                     onBack = { nav.popBackStack() },
                     error = vm.error,
                     loading = vm.loading,
@@ -122,6 +154,7 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                     loading = vm.loading,
                     error = vm.error,
                     onRefresh = { vm.loadDashboard() },
+                    onDeleteMeal = { vm.deleteMeal(it) },
                     onLogout = {
                         vm.logout {
                             scope.launch { tokenStore.clear() }
@@ -133,6 +166,7 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
             composable("meals") {
                 MealScreen(
                     loading = vm.loading,
+                    busyLabel = vm.busyLabel,
                     error = vm.error,
                     message = vm.message,
                     onSubmitText = { text, type ->
@@ -145,6 +179,7 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                 DietsScreen(
                     plans = vm.dietPlans,
                     loading = vm.loading,
+                    busyLabel = vm.busyLabel,
                     message = vm.message,
                     onLoad = { vm.loadDiets() },
                     onSelect = { vm.selectDiet(it) },
@@ -156,14 +191,52 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                 MenusScreen(
                     menu = vm.menu,
                     loading = vm.loading,
+                    busyLabel = vm.busyLabel,
                     onGenerate = { vm.generateMenu(it) },
                     onLoad = { vm.loadLatestMenu() },
                 )
             }
             composable("tips") {
-                LaunchedEffect(Unit) { vm.loadTips() }
-                TipsScreen(tips = vm.tips, loading = vm.loading, onLoad = { vm.loadTips() })
+                LaunchedEffect(Unit) { vm.loadTips(forceRefresh = false) }
+                TipsScreen(
+                    tips = vm.tips,
+                    loading = vm.loading,
+                    busyLabel = vm.busyLabel,
+                    onLoad = { vm.loadTips(forceRefresh = false) },
+                    onRefresh = { vm.loadTips(forceRefresh = true) },
+                )
             }
         }
+
+        AiAssistantSheet(
+            visible = showAiAssistant,
+            loading = vm.loading,
+            busyLabel = vm.busyLabel,
+            message = vm.message,
+            error = vm.error,
+            onDismiss = { showAiAssistant = false },
+            onRegisterMeal = { description ->
+                vm.createMeal(description, "lunch") {
+                    showAiAssistant = false
+                    nav.navigate("dashboard") {
+                        launchSingleTop = true
+                    }
+                    vm.loadDashboard()
+                }
+            },
+            onOpenMeals = {
+                showAiAssistant = false
+                nav.navigate("meals") { launchSingleTop = true }
+            },
+            onOpenTips = {
+                showAiAssistant = false
+                nav.navigate("tips") { launchSingleTop = true }
+            },
+            onSuggestDiet = {
+                vm.suggestDiet()
+                showAiAssistant = false
+                nav.navigate("diets") { launchSingleTop = true }
+            },
+        )
     }
 }

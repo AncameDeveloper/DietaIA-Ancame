@@ -98,7 +98,8 @@ data class MenuMealDto(
 
 data class TipsResponse(
     val tips: List<TipDto>,
-    val disclaimer: String?,
+    val disclaimer: String? = null,
+    val cached: Boolean? = null,
 )
 
 data class TipDto(
@@ -107,6 +108,8 @@ data class TipDto(
 )
 
 data class LoginRequest(val email: String, val password: String)
+
+data class GoogleAuthRequest(val id_token: String)
 
 data class RegisterRequest(
     val name: String,

@@ -2,8 +2,27 @@
 
 namespace App\Support;
 
+use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
+
 class Labels
 {
+    /** Formato visible en ES: día/mes/año */
+    public static function date(CarbonInterface|string|null $date, string $fallback = '—'): string
+    {
+        if ($date === null || $date === '') {
+            return $fallback;
+        }
+
+        try {
+            $parsed = $date instanceof CarbonInterface ? $date : Carbon::parse($date);
+
+            return $parsed->format('d/m/Y');
+        } catch (\Throwable) {
+            return is_string($date) ? $date : $fallback;
+        }
+    }
+
     public static function mealType(string $type): string
     {
         return match ($type) {

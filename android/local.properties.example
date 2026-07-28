@@ -2,3 +2,12 @@
 ## Copy to local.properties and set your SDK path, e.g.:
 ## sdk.dir=C\:\\Users\\Usuario\\AppData\\Local\\Android\\Sdk
 sdk.dir=C\:\\Users\\Usuario\\AppData\\Local\\Android\\Sdk
+
+## API (por defecto en build.gradle.kts: https://dieta.ancame.com/api/)
+## Para desarrollo local con emulador descomenta:
+## API_BASE_URL=http://10.0.2.2:8000/api/
+
+## Client ID tipo "Web application" de Google Cloud Console
+## (debe coincidir con GOOGLE_CLIENT_ID en el .env de Laravel)
+## El cliente OAuth Android (package + SHA-1) también debe existir en el mismo proyecto.
+GOOGLE_WEB_CLIENT_ID=

@@ -1,0 +1,111 @@
+# PROTOCOLO DE DESARROLLO Y DESPLIEGUE — DietaIA
+
+Actúa como desarrollador Senior. Separa claramente el trabajo diario del despliegue a producción.
+
+---
+
+## WEB + ANDROID (obligatorio en TODA petición)
+
+DietaIA tiene dos clientes sobre el mismo backend Laravel:
+
+| Plataforma | Ubicación | Stack |
+|------------|-----------|--------|
+| Web | raíz del repo (`app/`, `resources/views/`, Livewire, Blade, `routes/web.php`) | Laravel + Livewire |
+| Android | `android/` | Kotlin + Jetpack Compose + API (`routes/api.php`, Sanctum) |
+| API / Backend | `app/Http/Controllers/Api/`, `routes/api.php`, modelos, servicios | Laravel |
+
+En **cualquier** petición (feature, bugfix, refactor, auth, IA, UI, etc.):
+
+1. Piensa siempre en **web y Android**. No asumas que el usuario solo quiere una plataforma salvo que lo diga explícitamente.
+2. Si el cambio afecta lógica de negocio, auth, endpoints, modelos, validaciones o respuestas de la API: actualiza **backend + web + Android** (o confirma y aplica lo que falte).
+3. Si solo tocas UI web, valora si Android necesita el equivalente (y viceversa). Si no aplica, dilo en una frase.
+4. Mantén paridad de comportamiento: mismos flujos, mismos datos, mismos errores visibles al usuario en ambas apps.
+5. La API debe servir a Android en producción (`https://dieta.ancame.com/api/...`); no rompas contratos JSON ni auth (Sanctum / Google) al cambiar la web.
+6. No hardcodees `localhost` / `10.0.2.2` en Android para builds de producción; usa la URL de prod o `local.properties` solo para desarrollo.
+
+---
+
+## ACCESO VPS (no preguntar; usar siempre estos datos)
+
+| Dato | Valor |
+|------|--------|
+| Host / IP | `79.143.188.41` |
+| Puerto SSH | `22` |
+| Usuario SSH | `cursor` |
+| Clave privada | `C:\Users\Usuario\.ssh\id_ed25519` |
+| Ruta proyecto | `/home/ancame-dieta/htdocs/dieta.ancame.com` |
+| URL producción | `https://dieta.ancame.com` |
+| Repo GitHub | `https://github.com/AncameDeveloper/DietaIA-Ancame.git` |
+| Rama | `master` |
+
+Comando base SSH:
+
+```bash
+ssh -o BatchMode=yes -i "C:\Users\Usuario\.ssh\id_ed25519" cursor@79.143.188.41
+```
+
+Comando base SCP (solo si Git no es viable):
+
+```bash
+scp -o BatchMode=yes -i "C:\Users\Usuario\.ssh\id_ed25519" <local> cursor@79.143.188.41:/home/ancame-dieta/htdocs/dieta.ancame.com/<ruta-relativa>
+```
+
+---
+
+## 1. DESARROLLO LOCAL (por defecto)
+
+- Realiza TODAS las modificaciones solo en el código local (Laragon / entorno de desarrollo).
+- NO hagas commit, push ni despliegue al VPS salvo que el usuario lo pida explícitamente.
+- Escribe siempre código listo para producción:
+  - NUNCA hardcodees credenciales, rutas absolutas locales (`c:/laragon/...`), `localhost`, `127.0.0.1` ni dominios de producción.
+  - Usa variables de entorno (`.env` / `config/`) y rutas relativas.
+  - Diferencia entornos con `APP_ENV`, `APP_URL`, etc.; no asumas que local y VPS son iguales.
+  - Ten en cuenta permisos, caché, assets compilados (`npm run build`), Composer y migraciones que harán falta en el VPS.
+- Puedes dejar cambios sin commitear en local mientras se itera. No limpies ni deshagas trabajo sin pedirlo.
+
+---
+
+## 2. DESPLIEGUE A PRODUCCIÓN (solo bajo petición explícita)
+
+Cuando el usuario pida desplegar a producción (p. ej. "despliega", "sube a producción", "deploy al VPS"), completa ESTOS pasos en orden y no des por terminada la tarea hasta confirmarlos:
+
+### 2.1 Commit local
+- Revisa `git status` y `git diff`.
+- NO incluyas secretos (`.env`, claves SSH, credenciales) ni artefactos irrelevantes (zips, etc.).
+- Mensaje en Conventional Commits: `feat:`, `fix:`, `refactor:`, `chore:`, etc.
+- `git add` solo de archivos relevantes → `git commit`.
+
+### 2.2 Push a GitHub
+- Rama: `master` → `git push origin master`.
+- Si falla el push, informa al usuario; no inventes credenciales.
+
+### 2.3 Actualizar el VPS (preferir Git)
+Con los datos de la sección ACCESO VPS:
+
+```bash
+ssh -o BatchMode=yes -i "C:\Users\Usuario\.ssh\id_ed25519" cursor@79.143.188.41 "cd /home/ancame-dieta/htdocs/dieta.ancame.com && git pull origin master"
+```
+
+Luego, si aplica, en el mismo SSH:
+- `composer install --no-dev --optimize-autoloader`
+- `npm ci` / `npm run build` (si hay frontend)
+- `php artisan migrate --force`
+- `php artisan optimize:clear` (o `config:cache` / `route:cache` / `view:cache`)
+- reinicio de PHP-FPM/queue solo si es necesario y hay permisos
+
+Alternativa solo si Git en el VPS no es viable: SCP/SFTP de los archivos modificados con la misma clave/host/ruta. Prefiere siempre `git pull`.
+
+### 2.4 Confirmación
+- Resume qué se commitó, que se hizo push, y el resultado del `git pull` / post-deploy en el VPS.
+- Si algo falla a mitad (push OK pero VPS falla), dilo claramente y no digas que el despliegue está completo.
+
+---
+
+## REGLAS IMPORTANTES
+
+- Toda petición se resuelve pensando en **web y Android** (ver sección WEB + ANDROID).
+- Desarrollo = solo local + mentalidad producción. Despliegue = solo cuando el usuario lo pida.
+- Nunca force-push a `master`/`main` ni skips de hooks salvo petición explícita.
+- Nunca sobrescribas el `.env` de producción con el de local.
+- Nunca pegues ni commits el contenido de la clave privada; usa solo la ruta del archivo.
+- No vuelvas a pedir host, usuario, clave o ruta del VPS: ya están documentados arriba.
