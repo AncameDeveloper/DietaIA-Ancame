@@ -561,12 +561,22 @@ Responde SOLO JSON:
       "day": 1,
       "date_label": "string",
       "meals": [
-        {"meal_type":"breakfast|lunch|dinner|snack","title":"string","description":"string","calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}
+        {
+          "meal_type":"breakfast|lunch|dinner|snack",
+          "title":"string",
+          "description":"string",
+          "calories":number,
+          "protein_g":number,
+          "carbs_g":number,
+          "fat_g":number,
+          "ingredients":[{"name":"string","quantity_g":number}]
+        }
       ]
     }
   ]
 }
 Incluye exactamente {$days} día(s). Sé conciso en descriptions (máx. 12 palabras).
+En cada comida incluye "ingredients" con los ingredientes principales a comprar (name + quantity_g).
 PROMPT;
 
         return $this->requestJson($user, 'generate_menu_'.$horizon, $prompt);
@@ -964,10 +974,10 @@ PROMPT;
                         'day' => $day,
                         'date_label' => 'Día '.$day,
                         'meals' => [
-                            ['meal_type' => 'breakfast', 'title' => 'Yogur griego con frutos rojos', 'description' => 'Yogur natural, fresas y nueces', 'calories' => 320, 'protein_g' => 22, 'carbs_g' => 28, 'fat_g' => 12],
-                            ['meal_type' => 'lunch', 'title' => 'Pollo a la plancha con quinoa', 'description' => 'Pechuga, quinoa y ensalada', 'calories' => 520, 'protein_g' => 42, 'carbs_g' => 45, 'fat_g' => 14],
-                            ['meal_type' => 'dinner', 'title' => 'Salmón con verduras', 'description' => 'Salmón al horno y brócoli', 'calories' => 480, 'protein_g' => 36, 'carbs_g' => 18, 'fat_g' => 28],
-                            ['meal_type' => 'snack', 'title' => 'Manzana y almendras', 'description' => '1 manzana + 10 almendras', 'calories' => 180, 'protein_g' => 5, 'carbs_g' => 22, 'fat_g' => 8],
+                            ['meal_type' => 'breakfast', 'title' => 'Yogur griego con frutos rojos', 'description' => 'Yogur natural, fresas y nueces', 'calories' => 320, 'protein_g' => 22, 'carbs_g' => 28, 'fat_g' => 12, 'ingredients' => [['name' => 'Yogur griego', 'quantity_g' => 150], ['name' => 'Fresas', 'quantity_g' => 80], ['name' => 'Nueces', 'quantity_g' => 20]]],
+                            ['meal_type' => 'lunch', 'title' => 'Pollo a la plancha con quinoa', 'description' => 'Pechuga, quinoa y ensalada', 'calories' => 520, 'protein_g' => 42, 'carbs_g' => 45, 'fat_g' => 14, 'ingredients' => [['name' => 'Pechuga de pollo', 'quantity_g' => 150], ['name' => 'Quinoa', 'quantity_g' => 80], ['name' => 'Ensalada mixta', 'quantity_g' => 120]]],
+                            ['meal_type' => 'dinner', 'title' => 'Salmón con verduras', 'description' => 'Salmón al horno y brócoli', 'calories' => 480, 'protein_g' => 36, 'carbs_g' => 18, 'fat_g' => 28, 'ingredients' => [['name' => 'Salmón', 'quantity_g' => 150], ['name' => 'Brócoli', 'quantity_g' => 150]]],
+                            ['meal_type' => 'snack', 'title' => 'Manzana y almendras', 'description' => '1 manzana + 10 almendras', 'calories' => 180, 'protein_g' => 5, 'carbs_g' => 22, 'fat_g' => 8, 'ingredients' => [['name' => 'Manzana', 'quantity_g' => 150], ['name' => 'Almendras', 'quantity_g' => 20]]],
                         ],
                     ];
                 })->all(),

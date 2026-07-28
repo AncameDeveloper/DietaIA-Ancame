@@ -35,6 +35,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/menus', [MenuController::class, 'index']);
     Route::get('/menus/latest', [MenuController::class, 'latest']);
     Route::post('/menus/generate', [MenuController::class, 'generate'])->middleware('throttle:10,1');
+    Route::post('/menus/shopping-list', [MenuController::class, 'shoppingList'])->middleware('throttle:30,1');
+    // Alias solicitado: /api/menu/shopping-list
+    Route::post('/menu/shopping-list', [MenuController::class, 'shoppingList'])->middleware('throttle:30,1');
 
     Route::get('/tips', [TipController::class, 'index'])->middleware('throttle:20,1');
 });

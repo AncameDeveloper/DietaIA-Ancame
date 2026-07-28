@@ -94,6 +94,34 @@ data class MenuMealDto(
     val title: String? = null,
     val description: String? = null,
     val calories: Double? = null,
+    val ingredients: List<MenuIngredientDto>? = null,
+    val items: List<MenuIngredientDto>? = null,
+)
+
+data class MenuIngredientDto(
+    val name: String? = null,
+    val quantity_g: Double? = null,
+)
+
+data class ShoppingListRequest(
+    val menu_id: Int? = null,
+    val horizon: String? = null,
+    val content: MenuContentDto? = null,
+)
+
+data class ShoppingListResponse(
+    val menu_id: Int? = null,
+    val horizon: String? = null,
+    val count: Int = 0,
+    val items: List<ShoppingListItemDto> = emptyList(),
+)
+
+data class ShoppingListItemDto(
+    val name: String,
+    val quantity_g: Double? = null,
+    val unit: String? = null,
+    val quantity_label: String? = null,
+    val sources: List<String>? = null,
 )
 
 data class TipsResponse(

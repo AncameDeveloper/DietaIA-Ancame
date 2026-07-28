@@ -14,6 +14,8 @@ import com.dietaia.app.data.LoginRequest
 import com.dietaia.app.data.MealCreateRequest
 import com.dietaia.app.data.MenuGenerateRequest
 import com.dietaia.app.data.RegisterRequest
+import com.dietaia.app.data.ShoppingListItemDto
+import com.dietaia.app.data.ShoppingListRequest
 import com.dietaia.app.data.TipDto
 import com.dietaia.app.data.WeeklyMenuDto
 import kotlinx.coroutines.Job
@@ -40,6 +42,14 @@ class AppViewModel : ViewModel() {
     var dietPlans by mutableStateOf<List<DietPlanDto>>(emptyList())
         private set
     var menu by mutableStateOf<WeeklyMenuDto?>(null)
+        private set
+    var dailyMenu by mutableStateOf<WeeklyMenuDto?>(null)
+        private set
+    var weeklyMenu by mutableStateOf<WeeklyMenuDto?>(null)
+        private set
+    var shoppingItems by mutableStateOf<List<ShoppingListItemDto>>(emptyList())
+        private set
+    var shoppingError by mutableStateOf<String?>(null)
         private set
     var tips by mutableStateOf<List<TipDto>>(emptyList())
         private set
@@ -252,7 +262,13 @@ class AppViewModel : ViewModel() {
                 ),
             )
             try {
-                menu = api.generateMenu(MenuGenerateRequest(horizon))
+                val created = api.generateMenu(MenuGenerateRequest(horizon))
+                menu = created
+                if (horizon == "weekly") {
+                    weeklyMenu = created
+                } else {
+                    dailyMenu = created
+                }
             } catch (e: Exception) {
                 error = e.message
             } finally {
@@ -261,13 +277,55 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    fun loadLatestMenu() {
+    fun loadLatestMenu(horizon: String? = null) {
         viewModelScope.launch {
             try {
-                menu = api.latestMenu()
+                if (horizon == null || horizon == "daily") {
+                    dailyMenu = api.latestMenu("daily")
+                }
+                if (horizon == null || horizon == "weekly") {
+                    weeklyMenu = api.latestMenu("weekly")
+                }
+                menu = when (horizon) {
+                    "weekly" -> weeklyMenu ?: dailyMenu
+                    "daily" -> dailyMenu ?: weeklyMenu
+                    else -> dailyMenu ?: weeklyMenu ?: api.latestMenu()
+                }
             } catch (_: Exception) {
             }
         }
+    }
+
+    fun loadShoppingList(horizon: String, menu: WeeklyMenuDto?) {
+        viewModelScope.launch {
+            beginBusy(listOf("Preparando la lista de la compra…", "Consolidando ingredientes…"))
+            shoppingError = null
+            shoppingItems = emptyList()
+            try {
+                val body = when {
+                    menu?.content != null -> ShoppingListRequest(
+                        menu_id = menu.id,
+                        horizon = menu.horizon.ifBlank { horizon },
+                        content = menu.content,
+                    )
+                    else -> ShoppingListRequest(horizon = horizon)
+                }
+                val res = api.shoppingList(body)
+                shoppingItems = res.items
+                if (res.items.isEmpty()) {
+                    shoppingError = "No se pudieron extraer ingredientes de este menú."
+                }
+            } catch (e: Exception) {
+                shoppingError = e.message ?: "No se pudo generar la lista de la compra."
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
+    fun clearShoppingList() {
+        shoppingItems = emptyList()
+        shoppingError = null
     }
 
     fun loadTips(forceRefresh: Boolean = false) {

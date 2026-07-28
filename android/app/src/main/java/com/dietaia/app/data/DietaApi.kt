@@ -55,7 +55,10 @@ interface DietaApi {
     suspend fun generateMenu(@Body body: MenuGenerateRequest): WeeklyMenuDto
 
     @GET("menus/latest")
-    suspend fun latestMenu(): WeeklyMenuDto?
+    suspend fun latestMenu(@Query("horizon") horizon: String? = null): WeeklyMenuDto?
+
+    @POST("menus/shopping-list")
+    suspend fun shoppingList(@Body body: ShoppingListRequest): ShoppingListResponse
 
     @GET("tips")
     suspend fun tips(@Query("refresh") refresh: Boolean = false): TipsResponse

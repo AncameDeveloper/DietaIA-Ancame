@@ -521,6 +521,44 @@
             animation: ai-bar 1.4s ease-in-out infinite;
         }
         .is-dimmed { opacity: .55; pointer-events: none; transition: opacity .2s ease; }
+        .shopping-row {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            padding: .65rem 0;
+            margin: 0;
+            border-bottom: 1px solid var(--line);
+            cursor: pointer;
+            color: var(--ink);
+            font-size: 1rem;
+        }
+        .shopping-row:last-child { border-bottom: 0; }
+        .shopping-row input[type="checkbox"] {
+            width: 1.15rem;
+            height: 1.15rem;
+            min-width: 1.15rem;
+            margin: 0;
+            padding: 0;
+            flex-shrink: 0;
+            border-radius: 4px;
+            accent-color: var(--accent);
+            box-sizing: border-box;
+            appearance: auto;
+            -webkit-appearance: checkbox;
+        }
+        .shopping-text {
+            display: flex;
+            flex-direction: column;
+            gap: .15rem;
+            flex: 1;
+            min-width: 0;
+            line-height: 1.25;
+        }
+        .shopping-row.is-checked .shopping-text strong {
+            text-decoration: line-through;
+            color: var(--muted);
+        }
+        .shopping-row.is-checked .shopping-text .muted { opacity: .7; }
         @keyframes ai-spin { to { transform: rotate(360deg); } }
         @keyframes ai-bar {
             0% { transform: translateX(-120%); }

@@ -189,11 +189,16 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
             composable("menus") {
                 LaunchedEffect(Unit) { vm.loadLatestMenu() }
                 MenusScreen(
-                    menu = vm.menu,
+                    dailyMenu = vm.dailyMenu,
+                    weeklyMenu = vm.weeklyMenu,
                     loading = vm.loading,
                     busyLabel = vm.busyLabel,
+                    shoppingItems = vm.shoppingItems,
+                    shoppingError = vm.shoppingError,
                     onGenerate = { vm.generateMenu(it) },
-                    onLoad = { vm.loadLatestMenu() },
+                    onLoad = { vm.loadLatestMenu(it) },
+                    onOpenShoppingList = { horizon, menu -> vm.loadShoppingList(horizon, menu) },
+                    onCloseShoppingList = { vm.clearShoppingList() },
                 )
             }
             composable("tips") {

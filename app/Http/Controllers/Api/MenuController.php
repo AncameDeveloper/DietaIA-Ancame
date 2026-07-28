@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\WeeklyMenu;
 use App\Services\NutritionAiService;
+use App\Services\ShoppingListService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -58,5 +59,53 @@ class MenuController extends Controller
             ->get();
 
         return response()->json($menus);
+    }
+
+    public function shoppingList(Request $request, ShoppingListService $shoppingList): JsonResponse
+    {
+        $data = $request->validate([
+            'menu_id' => ['nullable', 'integer'],
+            'horizon' => ['nullable', 'in:daily,weekly'],
+            'content' => ['nullable', 'array'],
+            'content.days' => ['nullable', 'array'],
+            'days' => ['nullable', 'array'],
+        ]);
+
+        $content = null;
+
+        if (! empty($data['content']) && is_array($data['content'])) {
+            $content = $data['content'];
+        } elseif (! empty($data['days']) && is_array($data['days'])) {
+            $content = ['days' => $data['days']];
+        } else {
+            $query = WeeklyMenu::query()
+                ->where('user_id', $request->user()->id);
+
+            if (! empty($data['menu_id'])) {
+                $query->where('id', $data['menu_id']);
+            } else {
+                $query->latest();
+                if (! empty($data['horizon'])) {
+                    $query->where('horizon', $data['horizon']);
+                }
+            }
+
+            $menu = $query->first();
+            abort_if(! $menu, 404, 'No hay menú disponible para generar la lista de la compra.');
+            abort_unless($menu->user_id === $request->user()->id, 403);
+
+            $content = is_array($menu->content) ? $menu->content : [];
+            $data['menu_id'] = $menu->id;
+            $data['horizon'] = $menu->horizon;
+        }
+
+        $items = $shoppingList->buildFromMenuContent($content);
+
+        return response()->json([
+            'menu_id' => $data['menu_id'] ?? null,
+            'horizon' => $data['horizon'] ?? null,
+            'count' => count($items),
+            'items' => $items,
+        ]);
     }
 }
