@@ -31,6 +31,9 @@ class Dashboard extends Component
 
     public ?array $quickPreview = null;
 
+    /** @var list<array<string, mixed>> */
+    public array $quickPreviews = [];
+
     public string $suggestText = '';
 
     public ?array $suggestResult = null;
@@ -123,6 +126,7 @@ class Dashboard extends Component
         $this->quickError = '';
         $this->quickStatus = '';
         $this->quickPreview = null;
+        $this->quickPreviews = [];
         $this->suggestResult = null;
         $this->quickPhoto = null;
         if ($mode === 'suggest') {
@@ -168,6 +172,7 @@ class Dashboard extends Component
         $this->quickError = '';
         $this->quickStatus = '';
         $this->quickPreview = null;
+        $this->quickPreviews = [];
 
         $this->validate([
             'quickText' => ['nullable', 'string', 'max:2000'],
@@ -198,40 +203,80 @@ class Dashboard extends Component
                 $absolute
             );
 
-            $this->quickPreview = [
-                'meal_type' => $analysis['meal_type'] ?? 'lunch',
-                'meal_type_label' => $analysis['meal_type_label'] ?? $ai->mealTypeLabel($analysis['meal_type'] ?? 'lunch'),
-                'title' => $analysis['title'] ?? 'Comida',
-                'description' => $analysis['description'] ?? $this->quickText,
-                'items' => $analysis['items'] ?? [],
-                'calories' => (float) ($analysis['calories'] ?? 0),
-                'protein_g' => (float) ($analysis['protein_g'] ?? 0),
-                'carbs_g' => (float) ($analysis['carbs_g'] ?? 0),
-                'fat_g' => (float) ($analysis['fat_g'] ?? 0),
-                'fiber_g' => (float) ($analysis['fiber_g'] ?? 0),
-                'micros' => $analysis['micros'] ?? [],
-                'confidence' => $analysis['confidence'] ?? null,
-                'photo_path' => $photoPath,
-                'source' => $photoPath ? 'photo_ai' : 'text_ai',
-            ];
+            $source = $photoPath ? 'photo_ai' : 'text_ai';
+            $this->quickPreviews = collect($analysis['meals'] ?? [])
+                ->map(function (array $meal) use ($photoPath, $source) {
+                    return [
+                        'meal_type' => $meal['meal_type'] ?? 'lunch',
+                        'meal_type_label' => $meal['meal_type_label'] ?? 'Comida',
+                        'title' => $meal['title'] ?? 'Comida',
+                        'description' => $meal['description'] ?? $this->quickText,
+                        'items' => $meal['items'] ?? [],
+                        'calories' => (float) ($meal['calories'] ?? 0),
+                        'protein_g' => (float) ($meal['protein_g'] ?? 0),
+                        'carbs_g' => (float) ($meal['carbs_g'] ?? 0),
+                        'fat_g' => (float) ($meal['fat_g'] ?? 0),
+                        'fiber_g' => (float) ($meal['fiber_g'] ?? 0),
+                        'micros' => $meal['micros'] ?? [],
+                        'confidence' => $meal['confidence'] ?? null,
+                        'photo_path' => $photoPath,
+                        'source' => $source,
+                    ];
+                })
+                ->values()
+                ->all();
+
+            // Compatibilidad con vistas/lógica antigua que miran un solo preview.
+            $this->quickPreview = $this->quickPreviews[0] ?? null;
+
+            if ($this->quickPreviews === []) {
+                $this->quickError = 'La IA no detectó ninguna comida. Prueba a reformular.';
+            }
         } catch (\Throwable $e) {
+            report($e);
             $this->quickError = 'No se pudo analizar la entrada. Inténtalo de nuevo.';
         } finally {
             $this->quickLoading = false;
         }
     }
 
+    public function removeQuickPreview(int $index): void
+    {
+        if (! isset($this->quickPreviews[$index])) {
+            return;
+        }
+
+        unset($this->quickPreviews[$index]);
+        $this->quickPreviews = array_values($this->quickPreviews);
+        $this->quickPreview = $this->quickPreviews[0] ?? null;
+    }
+
     public function confirmQuickEntry(DailySummaryService $summaries): void
     {
-        if (! $this->quickPreview) {
+        if ($this->quickPreviews === [] && $this->quickPreview) {
+            $this->quickPreviews = [$this->quickPreview];
+        }
+
+        if ($this->quickPreviews === []) {
             $this->quickError = 'Primero analiza la comida con IA.';
 
             return;
         }
 
-        $this->persistMealPayload($this->quickPreview, $this->date, $summaries, $this->quickText);
+        $count = 0;
+        foreach ($this->quickPreviews as $preview) {
+            $this->persistMealPayload($preview, $this->date, $summaries, $this->quickText, rebuild: false);
+            $count++;
+        }
+        $summaries->rebuild(auth()->user(), $this->date);
+
         $this->resetQuickAssistant();
-        session()->flash('status', 'Comida añadida con el asistente nutricional.');
+        session()->flash(
+            'status',
+            $count === 1
+                ? 'Comida añadida con el asistente nutricional.'
+                : "{$count} comidas añadidas con el asistente nutricional."
+        );
     }
 
     public function requestSuggestions(NutritionAiService $ai): void
@@ -299,8 +344,13 @@ class Dashboard extends Component
         session()->flash('status', 'Sugerencia insertada en tu plan del '.$dateLabel.'.');
     }
 
-    private function persistMealPayload(array $preview, string $eatenOn, DailySummaryService $summaries, ?string $fallbackDescription = null): void
-    {
+    private function persistMealPayload(
+        array $preview,
+        string $eatenOn,
+        DailySummaryService $summaries,
+        ?string $fallbackDescription = null,
+        bool $rebuild = true,
+    ): void {
         $user = auth()->user();
 
         $meal = Meal::create([
@@ -333,7 +383,9 @@ class Dashboard extends Component
             ]);
         }
 
-        $summaries->rebuild($user, $eatenOn);
+        if ($rebuild) {
+            $summaries->rebuild($user, $eatenOn);
+        }
     }
 
     private function resetQuickAssistant(bool $keepOpen = false): void
@@ -344,6 +396,7 @@ class Dashboard extends Component
         $this->suggestText = '';
         $this->quickPhoto = null;
         $this->quickPreview = null;
+        $this->quickPreviews = [];
         $this->suggestResult = null;
         $this->quickError = '';
         $this->quickStatus = '';

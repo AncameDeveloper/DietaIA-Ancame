@@ -124,6 +124,19 @@ data class MealCreateRequest(
     val use_ai: Boolean = true,
 )
 
+data class MealCreateResponse(
+    val meals: List<MealDto> = emptyList(),
+    val count: Int = 0,
+    val message: String? = null,
+    val meal: MealDto? = null,
+) {
+    fun registeredMeals(): List<MealDto> = when {
+        meals.isNotEmpty() -> meals
+        meal != null -> listOf(meal)
+        else -> emptyList()
+    }
+}
+
 data class ProfileUpdateRequest(
     val age: Int? = null,
     val sex: String? = null,

@@ -44,46 +44,84 @@ class MealController extends Controller
         ]);
 
         $user = $request->user();
-        $mealType = $data['meal_type'] ?? 'lunch';
         $eatenOn = $data['eaten_on'] ?? now()->toDateString();
+        $confirmed = $data['confirmed'] ?? true;
+        $created = [];
 
-        $analysis = null;
         if ($request->boolean('use_ai', true) && empty($data['calories'])) {
-            $analysis = $ai->analyzeText($user, $data['description'], $mealType);
-        }
+            $analysis = $ai->analyzeQuickEntry($user, $data['description']);
+            $mealsPayload = $analysis['meals'] ?? [];
 
-        $meal = Meal::create([
-            'user_id' => $user->id,
-            'eaten_on' => $eatenOn,
-            'meal_type' => $mealType,
-            'title' => $data['title'] ?? ($analysis['title'] ?? 'Comida'),
-            'description' => $data['description'],
-            'source' => $analysis ? 'text_ai' : 'manual',
-            'calories' => $data['calories'] ?? ($analysis['calories'] ?? 0),
-            'protein_g' => $data['protein_g'] ?? ($analysis['protein_g'] ?? 0),
-            'carbs_g' => $data['carbs_g'] ?? ($analysis['carbs_g'] ?? 0),
-            'fat_g' => $data['fat_g'] ?? ($analysis['fat_g'] ?? 0),
-            'fiber_g' => $data['fiber_g'] ?? ($analysis['fiber_g'] ?? 0),
-            'micros' => $data['micros'] ?? ($analysis['micros'] ?? []),
-            'ai_confidence' => $analysis['confidence'] ?? null,
-            'confirmed' => $data['confirmed'] ?? true,
-        ]);
+            // Si el cliente fuerza un meal_type y solo hay 1 comida, respétalo.
+            if (count($mealsPayload) === 1 && ! empty($data['meal_type'])) {
+                $mealsPayload[0]['meal_type'] = $data['meal_type'];
+                $mealsPayload[0]['meal_type_label'] = $ai->mealTypeLabel($data['meal_type']);
+            }
 
-        foreach (($analysis['items'] ?? []) as $item) {
-            $meal->items()->create([
-                'name' => $item['name'] ?? 'Item',
-                'quantity_g' => $item['quantity_g'] ?? 100,
-                'calories' => $item['calories'] ?? 0,
-                'protein_g' => $item['protein_g'] ?? 0,
-                'carbs_g' => $item['carbs_g'] ?? 0,
-                'fat_g' => $item['fat_g'] ?? 0,
-                'micros' => $item['micros'] ?? null,
+            foreach ($mealsPayload as $payload) {
+                $meal = Meal::create([
+                    'user_id' => $user->id,
+                    'eaten_on' => $eatenOn,
+                    'meal_type' => $payload['meal_type'] ?? ($data['meal_type'] ?? 'lunch'),
+                    'title' => $data['title'] ?? ($payload['title'] ?? 'Comida'),
+                    'description' => $payload['description'] ?? $data['description'],
+                    'source' => 'text_ai',
+                    'calories' => $payload['calories'] ?? 0,
+                    'protein_g' => $payload['protein_g'] ?? 0,
+                    'carbs_g' => $payload['carbs_g'] ?? 0,
+                    'fat_g' => $payload['fat_g'] ?? 0,
+                    'fiber_g' => $payload['fiber_g'] ?? 0,
+                    'micros' => $payload['micros'] ?? [],
+                    'ai_confidence' => $payload['confidence'] ?? null,
+                    'confirmed' => $confirmed,
+                ]);
+
+                foreach (($payload['items'] ?? []) as $item) {
+                    $meal->items()->create([
+                        'name' => $item['name'] ?? 'Item',
+                        'quantity_g' => $item['quantity_g'] ?? 100,
+                        'calories' => $item['calories'] ?? 0,
+                        'protein_g' => $item['protein_g'] ?? 0,
+                        'carbs_g' => $item['carbs_g'] ?? 0,
+                        'fat_g' => $item['fat_g'] ?? 0,
+                        'micros' => $item['micros'] ?? null,
+                    ]);
+                }
+
+                $created[] = $meal->load('items');
+            }
+        } else {
+            $meal = Meal::create([
+                'user_id' => $user->id,
+                'eaten_on' => $eatenOn,
+                'meal_type' => $data['meal_type'] ?? 'lunch',
+                'title' => $data['title'] ?? 'Comida',
+                'description' => $data['description'],
+                'source' => 'manual',
+                'calories' => $data['calories'] ?? 0,
+                'protein_g' => $data['protein_g'] ?? 0,
+                'carbs_g' => $data['carbs_g'] ?? 0,
+                'fat_g' => $data['fat_g'] ?? 0,
+                'fiber_g' => $data['fiber_g'] ?? 0,
+                'micros' => $data['micros'] ?? [],
+                'ai_confidence' => null,
+                'confirmed' => $confirmed,
             ]);
+            $created[] = $meal->load('items');
         }
 
-        $summaries->rebuild($user, $eatenOn);
+        if ($confirmed) {
+            $summaries->rebuild($user, $eatenOn);
+        }
 
-        return response()->json($meal->load('items'), 201);
+        $count = count($created);
+
+        return response()->json([
+            'meals' => $created,
+            'count' => $count,
+            'message' => $count === 1 ? 'Comida registrada' : "{$count} comidas registradas",
+            'meal' => $created[0] ?? null,
+        ], 201);
     }
 
     public function analyzePhoto(Request $request, NutritionAiService $ai, DailySummaryService $summaries): JsonResponse

@@ -22,6 +22,41 @@ class QuickEntryAssistantTest extends TestCase
         $this->assertSame('Desayuno', $ai->mealTypeLabel('breakfast'));
     }
 
+    public function test_normalize_meals_list_accepts_multiple_formats(): void
+    {
+        $ai = app(NutritionAiService::class);
+
+        $fromMealsKey = $ai->normalizeMealsList([
+            'meals' => [
+                ['meal_type' => 'breakfast', 'title' => 'Café', 'calories' => 50],
+                ['tipo' => 'cena', 'alimento' => 'Huevo', 'calorias' => 90],
+            ],
+        ], 'desayuné café y cené huevo');
+
+        $this->assertCount(2, $fromMealsKey);
+        $this->assertSame('breakfast', $fromMealsKey[0]['meal_type']);
+        $this->assertSame('dinner', $fromMealsKey[1]['meal_type']);
+        $this->assertSame('Huevo', $fromMealsKey[1]['title']);
+
+        $fromLegacyObject = $ai->normalizeMealsList([
+            'meal_type' => 'lunch',
+            'title' => 'Sardinas',
+            'calories' => 200,
+        ], 'comí sardinas');
+
+        $this->assertCount(1, $fromLegacyObject);
+        $this->assertSame('lunch', $fromLegacyObject[0]['meal_type']);
+
+        $fromRootList = $ai->normalizeMealsList([
+            ['tipo' => 'desayuno', 'alimento' => 'Café'],
+            ['tipo' => 'almuerzo', 'alimento' => 'Sardinas'],
+        ], 'varios');
+
+        $this->assertCount(2, $fromRootList);
+        $this->assertSame('breakfast', $fromRootList[0]['meal_type']);
+        $this->assertSame('lunch', $fromRootList[1]['meal_type']);
+    }
+
     public function test_dashboard_page_loads_for_authenticated_user(): void
     {
         $this->seed();

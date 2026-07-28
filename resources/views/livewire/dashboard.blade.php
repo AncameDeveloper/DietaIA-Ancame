@@ -247,60 +247,79 @@
                     </button>
                 </div>
 
-                @if ($quickPreview)
-                    <div class="card" style="margin-bottom:0;background:var(--accent-2)">
-                        <div class="nav" style="margin:0 0 .5rem">
-                            <strong>{{ $quickPreview['title'] }}</strong>
-                            <span class="muted">{{ $quickPreview['meal_type_label'] ?? $quickPreview['meal_type'] }} · {{ \App\Support\Labels::date($date) }}</span>
-                        </div>
-                        @if (!empty($quickPreview['description']))
-                            <p class="muted" style="margin-top:0">{{ $quickPreview['description'] }}</p>
-                        @endif
+                @if (! empty($quickPreviews))
+                    <p class="muted" style="margin:0 0 .75rem">
+                        {{ count($quickPreviews) === 1
+                            ? 'Se detectó 1 comida. Revísala y confirma.'
+                            : 'Se detectaron '.count($quickPreviews).' comidas. Revísalas y confirma para registrarlas todas.' }}
+                    </p>
 
-                        <div class="grid grid-4" style="margin-bottom:.75rem">
-                            <div><div class="muted">kcal</div><strong>{{ round($quickPreview['calories']) }}</strong></div>
-                            <div><div class="muted">Proteína</div><strong>{{ round($quickPreview['protein_g'], 1) }} g</strong></div>
-                            <div><div class="muted">Carbos</div><strong>{{ round($quickPreview['carbs_g'], 1) }} g</strong></div>
-                            <div><div class="muted">Grasas</div><strong>{{ round($quickPreview['fat_g'], 1) }} g</strong></div>
-                        </div>
+                    @foreach ($quickPreviews as $index => $preview)
+                        <div class="card" style="margin-bottom:.75rem;background:var(--accent-2)">
+                            <div class="nav" style="margin:0 0 .5rem">
+                                <strong>{{ $preview['title'] }}</strong>
+                                <span class="muted">{{ $preview['meal_type_label'] ?? $preview['meal_type'] }} · {{ \App\Support\Labels::date($date) }}</span>
+                            </div>
+                            @if (!empty($preview['description']))
+                                <p class="muted" style="margin-top:0">{{ $preview['description'] }}</p>
+                            @endif
 
-                        @if (!empty($quickPreview['items']))
-                            <h3 style="margin:.5rem 0;font-size:1rem">Ingredientes</h3>
-                            @foreach ($quickPreview['items'] as $item)
-                                <div class="meal-row">
-                                    <div>
-                                        <strong>{{ $item['name'] ?? 'Item' }}</strong>
-                                        <div class="muted">{{ round($item['quantity_g'] ?? 0) }} g</div>
-                                    </div>
-                                    <div class="muted">{{ round($item['calories'] ?? 0) }} kcal</div>
-                                </div>
-                            @endforeach
-                        @endif
+                            <div class="grid grid-4" style="margin-bottom:.75rem">
+                                <div><div class="muted">kcal</div><strong>{{ round($preview['calories']) }}</strong></div>
+                                <div><div class="muted">Proteína</div><strong>{{ round($preview['protein_g'], 1) }} g</strong></div>
+                                <div><div class="muted">Carbos</div><strong>{{ round($preview['carbs_g'], 1) }} g</strong></div>
+                                <div><div class="muted">Grasas</div><strong>{{ round($preview['fat_g'], 1) }} g</strong></div>
+                            </div>
 
-                        @if (!empty($quickPreview['micros']))
-                            <h3 style="margin:.75rem 0 .35rem;font-size:1rem">Micronutrientes</h3>
-                            <div class="grid grid-4">
-                                @foreach ($quickPreview['micros'] as $key => $value)
-                                    <div>
-                                        <div class="muted">{{ str_replace('_', ' ', $key) }}</div>
-                                        <strong>{{ round($value, 1) }}</strong>
+                            @if (!empty($preview['items']))
+                                <h3 style="margin:.5rem 0;font-size:1rem">Ingredientes</h3>
+                                @foreach ($preview['items'] as $item)
+                                    <div class="meal-row">
+                                        <div>
+                                            <strong>{{ $item['name'] ?? 'Item' }}</strong>
+                                            <div class="muted">{{ round($item['quantity_g'] ?? 0) }} g</div>
+                                        </div>
+                                        <div class="muted">{{ round($item['calories'] ?? 0) }} kcal</div>
                                     </div>
                                 @endforeach
-                            </div>
-                        @endif
+                            @endif
 
-                        <label style="margin-top:.85rem">Tipo de comida</label>
-                        <select wire:model="quickPreview.meal_type">
-                            <option value="breakfast">Desayuno</option>
-                            <option value="lunch">Comida / Almuerzo</option>
-                            <option value="dinner">Cena</option>
-                            <option value="snack">Snack</option>
-                        </select>
+                            @if (!empty($preview['micros']))
+                                <h3 style="margin:.75rem 0 .35rem;font-size:1rem">Micronutrientes</h3>
+                                <div class="grid grid-4">
+                                    @foreach ($preview['micros'] as $key => $value)
+                                        <div>
+                                            <div class="muted">{{ str_replace('_', ' ', $key) }}</div>
+                                            <strong>{{ round($value, 1) }}</strong>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
 
-                        <button type="button" class="btn btn-primary" wire:click="confirmQuickEntry" wire:loading.attr="disabled">
-                            Confirmar y guardar
-                        </button>
-                    </div>
+                            <label style="margin-top:.85rem">Tipo de comida</label>
+                            <select wire:model="quickPreviews.{{ $index }}.meal_type">
+                                <option value="breakfast">Desayuno</option>
+                                <option value="lunch">Comida / Almuerzo</option>
+                                <option value="dinner">Cena</option>
+                                <option value="snack">Snack</option>
+                            </select>
+
+                            @if (count($quickPreviews) > 1)
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    style="margin-top:.5rem"
+                                    wire:click="removeQuickPreview({{ $index }})"
+                                >
+                                    Quitar esta comida
+                                </button>
+                            @endif
+                        </div>
+                    @endforeach
+
+                    <button type="button" class="btn btn-primary" wire:click="confirmQuickEntry" wire:loading.attr="disabled">
+                        {{ count($quickPreviews) === 1 ? 'Confirmar y guardar' : 'Confirmar y guardar las '.count($quickPreviews).' comidas' }}
+                    </button>
                 @endif
             @else
                 @if ($nutritionContext)

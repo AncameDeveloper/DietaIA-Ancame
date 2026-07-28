@@ -38,7 +38,7 @@ interface DietaApi {
     suspend fun suggestDiet(): Map<String, Any>
 
     @POST("meals")
-    suspend fun createMeal(@Body body: MealCreateRequest): MealDto
+    suspend fun createMeal(@Body body: MealCreateRequest): MealCreateResponse
 
     @DELETE("meals/{id}")
     suspend fun deleteMeal(@Path("id") id: Int): Map<String, String>

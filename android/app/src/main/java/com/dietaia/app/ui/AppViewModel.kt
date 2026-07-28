@@ -155,16 +155,17 @@ class AppViewModel : ViewModel() {
             beginBusy(
                 listOf(
                     "Analizando la comida…",
+                    "Detectando todas las comidas del mensaje…",
                     "Estimando calorías y nutrientes…",
-                    "Afinando la estimación…",
                     "Casi listo…",
                 ),
             )
             error = null
             message = null
             try {
-                api.createMeal(MealCreateRequest(description, mealType, true))
-                message = "Comida registrada"
+                val res = api.createMeal(MealCreateRequest(description, mealType, true))
+                val count = res.count.takeIf { it > 0 } ?: res.registeredMeals().size
+                message = res.message ?: if (count <= 1) "Comida registrada" else "$count comidas registradas"
                 onDone()
             } catch (e: Exception) {
                 error = e.message

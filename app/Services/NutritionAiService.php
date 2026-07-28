@@ -74,7 +74,9 @@ PROMPT;
     }
 
     /**
-     * Entrada rápida en lenguaje natural o foto: detecta tipo de comida + nutrientes.
+     * Entrada rápida en lenguaje natural o foto: detecta una o varias comidas + nutrientes.
+     *
+     * @return array{meals: list<array<string, mixed>>}
      */
     public function analyzeQuickEntry(User $user, ?string $text = null, ?string $absolutePath = null): array
     {
@@ -82,26 +84,35 @@ PROMPT;
         $hourHint = now()->format('H:i');
 
         $prompt = <<<PROMPT
-Eres un asistente nutricional. Analiza la entrada del usuario y extrae UNA comida para registrar hoy.
+Eres un asistente nutricional. Analiza la entrada del usuario y extrae TODAS las comidas distintas que menciona para registrar hoy.
 Hora actual aproximada: {$hourHint}
 Texto del usuario: {$text}
 Contexto de base local (si aplica): {$foodContext}
 
-Detecta el tipo de comida según palabras (desayuno/almuerzo/comida/cena/snack/merienda) o, si no hay pista, según la hora.
-Responde SOLO JSON válido:
+Reglas OBLIGATORIAS:
+1) Si el usuario menciona varias comidas (ej. "desayuné café, comí sardinas y cené un huevo"), debes devolver UNA entrada por cada comida.
+2) SIEMPRE responde con un objeto JSON que contenga la clave "meals" (array). Aunque solo haya 1 comida, "meals" debe ser un array de 1 elemento.
+3) Detecta meal_type por palabras (desayuno/almuerzo/comida/cena/snack/merienda) o, si no hay pista en esa comida, según la hora.
+4) No fusiones comidas de distinto tipo en un solo objeto.
+
+Responde SOLO JSON válido con este esquema:
 {
-  "meal_type": "breakfast|lunch|dinner|snack",
-  "meal_type_label": "Desayuno|Comida|Cena|Snack",
-  "title": "string",
-  "description": "string",
-  "items": [{"name":"string","quantity_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}],
-  "calories": number,
-  "protein_g": number,
-  "carbs_g": number,
-  "fat_g": number,
-  "fiber_g": number,
-  "micros": {"vitamin_a_mcg":number,"vitamin_c_mg":number,"vitamin_d_mcg":number,"calcium_mg":number,"iron_mg":number,"magnesium_mg":number,"potassium_mg":number},
-  "confidence": number
+  "meals": [
+    {
+      "meal_type": "breakfast|lunch|dinner|snack",
+      "meal_type_label": "Desayuno|Comida|Cena|Snack",
+      "title": "string",
+      "description": "string",
+      "items": [{"name":"string","quantity_g":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}],
+      "calories": number,
+      "protein_g": number,
+      "carbs_g": number,
+      "fat_g": number,
+      "fiber_g": number,
+      "micros": {"vitamin_a_mcg":number,"vitamin_c_mg":number,"vitamin_d_mcg":number,"calcium_mg":number,"iron_mg":number,"magnesium_mg":number,"potassium_mg":number},
+      "confidence": number
+    }
+  ]
 }
 PROMPT;
 
@@ -124,11 +135,104 @@ PROMPT;
             $text ?: 'comida en foto'
         );
 
-        $mealType = $this->normalizeMealType($result['meal_type'] ?? null, $text);
-        $result['meal_type'] = $mealType;
-        $result['meal_type_label'] = $result['meal_type_label'] ?? $this->mealTypeLabel($mealType);
+        return [
+            'meals' => $this->normalizeMealsList($result, $text),
+        ];
+    }
 
-        return $result;
+    /**
+     * Normaliza la respuesta de la IA a una lista de comidas.
+     * Acepta: {meals:[...]}, un array raíz [...], o un único objeto legacy.
+     * También admite claves en español (tipo, alimento, calorias).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function normalizeMealsList(array $result, ?string $text = null): array
+    {
+        $raw = [];
+
+        if (isset($result['meals']) && is_array($result['meals'])) {
+            $raw = $result['meals'];
+        } elseif ($result !== [] && array_is_list($result) && is_array($result[0] ?? null)) {
+            $raw = $result;
+        } elseif (
+            isset($result['title'])
+            || isset($result['alimento'])
+            || isset($result['calories'])
+            || isset($result['calorias'])
+            || isset($result['meal_type'])
+            || isset($result['tipo'])
+        ) {
+            $raw = [$result];
+        }
+
+        $meals = [];
+        foreach ($raw as $meal) {
+            if (! is_array($meal)) {
+                continue;
+            }
+
+            $hint = trim(($meal['title'] ?? $meal['alimento'] ?? '').' '.($meal['description'] ?? ''));
+            $mealType = $this->normalizeMealType(
+                $meal['meal_type'] ?? $meal['tipo'] ?? null,
+                $hint !== '' ? $hint : $text
+            );
+
+            $meals[] = [
+                'meal_type' => $mealType,
+                'meal_type_label' => $meal['meal_type_label']
+                    ?? $this->mealTypeLabelFromSpanish($meal['tipo'] ?? null)
+                    ?? $this->mealTypeLabel($mealType),
+                'title' => $meal['title'] ?? $meal['alimento'] ?? 'Comida',
+                'description' => $meal['description'] ?? ($meal['alimento'] ?? $text),
+                'items' => $meal['items'] ?? [],
+                'calories' => (float) ($meal['calories'] ?? $meal['calorias'] ?? 0),
+                'protein_g' => (float) ($meal['protein_g'] ?? $meal['proteinas'] ?? 0),
+                'carbs_g' => (float) ($meal['carbs_g'] ?? $meal['carbohidratos'] ?? 0),
+                'fat_g' => (float) ($meal['fat_g'] ?? $meal['grasas'] ?? 0),
+                'fiber_g' => (float) ($meal['fiber_g'] ?? $meal['fibra'] ?? 0),
+                'micros' => $meal['micros'] ?? [],
+                'confidence' => $meal['confidence'] ?? null,
+            ];
+        }
+
+        if ($meals === []) {
+            $mealType = $this->normalizeMealType(null, $text);
+
+            return [[
+                'meal_type' => $mealType,
+                'meal_type_label' => $this->mealTypeLabel($mealType),
+                'title' => 'Comida',
+                'description' => $text,
+                'items' => [],
+                'calories' => 0.0,
+                'protein_g' => 0.0,
+                'carbs_g' => 0.0,
+                'fat_g' => 0.0,
+                'fiber_g' => 0.0,
+                'micros' => [],
+                'confidence' => null,
+            ]];
+        }
+
+        return $meals;
+    }
+
+    private function mealTypeLabelFromSpanish(mixed $tipo): ?string
+    {
+        if (! is_string($tipo) || $tipo === '') {
+            return null;
+        }
+
+        $t = Str::lower(trim($tipo));
+
+        return match (true) {
+            str_contains($t, 'desayun') => 'Desayuno',
+            str_contains($t, 'almuerzo') || $t === 'comida' => 'Comida',
+            str_contains($t, 'cen') => 'Cena',
+            str_contains($t, 'snack') || str_contains($t, 'meriend') => 'Snack',
+            default => null,
+        };
     }
 
     public function normalizeMealType(?string $type, ?string $text = null): string
@@ -137,6 +241,18 @@ PROMPT;
         $allowed = ['breakfast', 'lunch', 'dinner', 'snack'];
         if (in_array($type, $allowed, true)) {
             return $type;
+        }
+
+        // Mapear etiquetas en español del modelo.
+        $mapped = match (true) {
+            str_contains($type, 'desayun') => 'breakfast',
+            str_contains($type, 'almuerzo') || $type === 'comida' => 'lunch',
+            str_contains($type, 'cen') => 'dinner',
+            str_contains($type, 'snack') || str_contains($type, 'meriend') => 'snack',
+            default => null,
+        };
+        if ($mapped !== null) {
+            return $mapped;
         }
 
         $hay = Str::lower((string) $text);
@@ -744,6 +860,17 @@ PROMPT;
     private function fallbackPayload(string $action, string $prompt): array
     {
         return match (true) {
+            str_starts_with($action, 'analyze_quick') => [
+                'meals' => [
+                    array_merge(
+                        $this->estimateFromLocalFoods($prompt),
+                        [
+                            'meal_type' => $this->normalizeMealType(null, $prompt),
+                            'meal_type_label' => $this->mealTypeLabel($this->normalizeMealType(null, $prompt)),
+                        ]
+                    ),
+                ],
+            ],
             str_starts_with($action, 'analyze') => array_merge(
                 $this->estimateFromLocalFoods($prompt),
                 [
