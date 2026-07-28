@@ -63,30 +63,30 @@
 
     <div class="card">
         <h2 style="margin-top:0">Evolución del peso</h2>
-        @if ($chart['points'])
-            <div class="weight-chart-wrap">
-                <svg viewBox="0 0 100 48" class="weight-chart" preserveAspectRatio="none" role="img" aria-label="Gráfico de peso">
-                    <defs>
-                        <linearGradient id="weightFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#2f6f4e" stop-opacity="0.25"/>
-                            <stop offset="100%" stop-color="#2f6f4e" stop-opacity="0"/>
-                        </linearGradient>
-                    </defs>
-                    <polyline fill="none" stroke="#2f6f4e" stroke-width="1.8" points="{{ $chart['points'] }}"></polyline>
-                    @foreach ($chart['dots'] as $dot)
-                        <circle cx="{{ $dot['x'] }}" cy="{{ $dot['y'] }}" r="1.6" fill="#2f6f4e"></circle>
-                    @endforeach
-                </svg>
+        @if (!empty($chart['series']))
+            <div
+                class="weight-chart-wrap"
+                wire:key="weight-chart-{{ md5(json_encode($chart['series']).$chart['min'].$chart['max']) }}"
+            >
+                <div class="weight-chart-canvas-wrap">
+                    <canvas
+                        class="js-weight-evolution-chart"
+                        data-labels='@json($chart['labels'])'
+                        data-weights='@json($chart['weights'])'
+                        data-min="{{ $chart['min'] }}"
+                        data-max="{{ $chart['max'] }}"
+                        aria-label="Gráfico de evolución del peso"
+                    ></canvas>
+                </div>
                 <div class="chart-scale muted">
                     <span>{{ number_format($chart['max'], 1) }} kg</span>
                     <span>{{ number_format($chart['min'], 1) }} kg</span>
                 </div>
             </div>
-            <div class="chart-labels muted">
-                @foreach ($chart['labels'] as $label)
-                    <span>{{ $label }}</span>
-                @endforeach
-            </div>
+            <p class="muted" style="margin:.5rem 0 0;font-size:.82rem">
+                {{ count($chart['series']) }} puntos · del {{ \App\Support\Labels::date($chart['series'][0]['date'] ?? null) }}
+                al {{ \App\Support\Labels::date($chart['series'][count($chart['series']) - 1]['date'] ?? null) }}
+            </p>
         @else
             <p class="muted">Todavía no hay registros de peso. Añade el de hoy para empezar el gráfico.</p>
         @endif
@@ -149,3 +149,98 @@
         </div>
     </div>
 </div>
+
+@assets
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+@endassets
+
+@script
+<script>
+    const paintWeightEvolutionChart = () => {
+        if (typeof Chart === 'undefined') {
+            return;
+        }
+
+        document.querySelectorAll('canvas.js-weight-evolution-chart').forEach((canvas) => {
+            if (canvas._weightChart) {
+                canvas._weightChart.destroy();
+                canvas._weightChart = null;
+            }
+
+            let labels = [];
+            let weights = [];
+            try {
+                labels = JSON.parse(canvas.dataset.labels || '[]');
+                weights = JSON.parse(canvas.dataset.weights || '[]').map(Number);
+            } catch (e) {
+                return;
+            }
+
+            if (!weights.length) {
+                return;
+            }
+
+            const min = Number(canvas.dataset.min);
+            const max = Number(canvas.dataset.max);
+
+            canvas._weightChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Peso (kg)',
+                        data: weights,
+                        borderColor: '#2f6f4e',
+                        backgroundColor: 'rgba(47, 111, 78, 0.18)',
+                        borderWidth: 2.5,
+                        pointRadius: weights.length > 20 ? 2 : 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#2f6f4e',
+                        tension: 0.25,
+                        fill: true,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${Number(ctx.parsed.y).toFixed(1)} kg`,
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                maxRotation: 0,
+                                autoSkip: true,
+                                maxTicksLimit: 8,
+                                color: '#5c6f66',
+                            },
+                        },
+                        y: {
+                            min: Number.isFinite(min) ? min : undefined,
+                            max: Number.isFinite(max) ? max : undefined,
+                            grid: { color: 'rgba(215, 224, 217, 0.9)' },
+                            ticks: {
+                                color: '#5c6f66',
+                                callback: (value) => `${Number(value).toFixed(1)}`,
+                            },
+                        },
+                    },
+                },
+            });
+        });
+    };
+
+    const schedulePaint = () => queueMicrotask(paintWeightEvolutionChart);
+
+    schedulePaint();
+    Livewire.hook('morph.updated', () => schedulePaint());
+    document.addEventListener('livewire:navigated', schedulePaint);
+</script>
+@endscript

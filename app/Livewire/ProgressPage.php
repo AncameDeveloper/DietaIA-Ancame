@@ -6,6 +6,7 @@ use App\Models\DailySummary;
 use App\Models\WeightLog;
 use App\Services\NutritionAiService;
 use App\Support\Labels;
+use Carbon\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -105,26 +106,96 @@ class ProgressPage extends Component
     }
 
     /**
+     * Historial de pesos listo para gráfica/API: [{date, weight}, ...]
+     *
+     * @return list<array{date: string, weight: float}>
+     */
+    public static function weightHistoryForUser(int $userId, int $days = 90): array
+    {
+        $user = \App\Models\User::query()->with('profile')->find($userId);
+        if (! $user) {
+            return [];
+        }
+
+        $from = now()->subDays(max(7, $days))->startOfDay();
+
+        $logs = WeightLog::query()
+            ->where('user_id', $userId)
+            ->whereDate('logged_on', '>=', $from->toDateString())
+            ->orderBy('logged_on', 'asc')
+            ->orderBy('id', 'asc')
+            ->get(['logged_on', 'weight_kg']);
+
+        // Un punto por día (último registro del día).
+        $byDate = [];
+        foreach ($logs as $log) {
+            $date = $log->logged_on instanceof Carbon
+                ? $log->logged_on->toDateString()
+                : Carbon::parse($log->logged_on)->toDateString();
+            $byDate[$date] = round((float) $log->weight_kg, 2);
+        }
+
+        $series = [];
+        foreach ($byDate as $date => $weight) {
+            $series[] = ['date' => $date, 'weight' => $weight];
+        }
+
+        $startWeight = $user->profile?->start_weight_kg
+            ? (float) $user->profile->start_weight_kg
+            : null;
+
+        // Si solo hay 0–1 puntos, incluir peso inicial del perfil para trazar tendencia.
+        if ($startWeight && count($series) <= 1) {
+            $firstDate = $series[0]['date'] ?? now()->toDateString();
+            $startDate = Carbon::parse($firstDate)->subDays(count($series) === 0 ? 0 : 7)->toDateString();
+
+            // No duplicar si ya existe exactamente el mismo día.
+            $hasStartDate = collect($series)->contains(fn ($p) => $p['date'] === $startDate);
+            if (! $hasStartDate) {
+                array_unshift($series, [
+                    'date' => $startDate,
+                    'weight' => round($startWeight, 2),
+                ]);
+            } elseif (count($series) === 1 && abs($series[0]['weight'] - $startWeight) > 0.05) {
+                // Mismo día raro: empujar el inicial un día antes.
+                array_unshift($series, [
+                    'date' => Carbon::parse($startDate)->subDay()->toDateString(),
+                    'weight' => round($startWeight, 2),
+                ]);
+            }
+        }
+
+        // Si tras eso sigue habiendo un solo punto, duplicar en X+1 día para línea visible.
+        if (count($series) === 1) {
+            $series[] = [
+                'date' => Carbon::parse($series[0]['date'])->addDay()->toDateString(),
+                'weight' => $series[0]['weight'],
+            ];
+        }
+
+        usort($series, fn ($a, $b) => strcmp($a['date'], $b['date']));
+
+        return array_values($series);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function progressStats(): array
     {
         $user = auth()->user()->load('profile');
-        $logs = WeightLog::query()
-            ->where('user_id', $user->id)
-            ->orderBy('logged_on')
-            ->get(['logged_on', 'weight_kg']);
+        $series = self::weightHistoryForUser((int) $user->id, 90);
 
-        $start = (float) ($user->profile?->start_weight_kg ?? $logs->first()?->weight_kg ?? $user->profile?->weight_kg ?? 0);
-        $current = (float) ($user->profile?->weight_kg ?? $logs->last()?->weight_kg ?? 0);
+        $start = (float) ($user->profile?->start_weight_kg ?? ($series[0]['weight'] ?? $user->profile?->weight_kg ?? 0));
+        $current = (float) ($user->profile?->weight_kg ?? (end($series)['weight'] ?? 0));
         $target = (float) ($user->profile?->target_weight_kg ?? max(0, $start - 8));
 
         $weeklyRate = null;
-        if ($logs->count() >= 2) {
-            $first = $logs->first();
-            $last = $logs->last();
-            $days = max(1, $first->logged_on->diffInDays($last->logged_on));
-            $weeklyRate = round((((float) $last->weight_kg - (float) $first->weight_kg) / $days) * 7, 2);
+        if (count($series) >= 2) {
+            $first = $series[0];
+            $last = $series[count($series) - 1];
+            $days = max(1, Carbon::parse($first['date'])->diffInDays(Carbon::parse($last['date'])));
+            $weeklyRate = round((($last['weight'] - $first['weight']) / $days) * 7, 2);
         }
 
         return [
@@ -136,10 +207,10 @@ class ProgressPage extends Component
             'delta_kg' => round($current - $start, 2),
             'weekly_rate_kg' => $weeklyRate,
             'streak_days' => $this->calorieStreak($user->id),
-            'logs' => $logs->take(-14)->map(fn ($l) => [
-                'date' => $l->logged_on->toDateString(),
-                'weight_kg' => (float) $l->weight_kg,
-            ])->values()->all(),
+            'logs' => collect($series)->take(-14)->values()->map(fn ($p) => [
+                'date' => $p['date'],
+                'weight_kg' => $p['weight'],
+            ])->all(),
         ];
     }
 
@@ -177,12 +248,8 @@ class ProgressPage extends Component
     public function render()
     {
         $stats = $this->progressStats();
-        $logs = WeightLog::query()
-            ->where('user_id', auth()->id())
-            ->orderBy('logged_on')
-            ->get();
-
-        $chart = $this->buildChartPoints($logs);
+        $series = self::weightHistoryForUser((int) auth()->id(), 90);
+        $chart = $this->buildChartPayload($series);
         $milestones = $this->buildMilestones($stats);
 
         $progressPct = 0;
@@ -197,7 +264,6 @@ class ProgressPage extends Component
 
         return view('livewire.progress-page', [
             'stats' => $stats,
-            'logs' => $logs,
             'chart' => $chart,
             'milestones' => $milestones,
             'progressPct' => round($progressPct, 1),
@@ -205,37 +271,65 @@ class ProgressPage extends Component
     }
 
     /**
-     * @return array{points: string, labels: array<int, string>, min: float, max: float}
+     * @param  list<array{date: string, weight: float}>  $series
+     * @return array<string, mixed>
      */
-    private function buildChartPoints($logs): array
+    private function buildChartPayload(array $series): array
     {
-        if ($logs->isEmpty()) {
-            return ['points' => '', 'labels' => [], 'min' => 0, 'max' => 0, 'dots' => []];
+        if ($series === []) {
+            return [
+                'series' => [],
+                'labels' => [],
+                'weights' => [],
+                'min' => 0,
+                'max' => 0,
+                'points' => '',
+                'dots' => [],
+            ];
         }
 
-        $values = $logs->map(fn ($l) => (float) $l->weight_kg)->all();
-        $min = min($values);
-        $max = max($values);
-        $span = max(1, $max - $min);
-        $count = max(1, count($values) - 1);
+        $weights = array_column($series, 'weight');
+        $rawMin = min($weights);
+        $rawMax = max($weights);
+        // Margen dinámico para que la línea no se colapse cuando min ≈ max.
+        $min = $rawMin - 2;
+        $max = $rawMax + 2;
+        if ($max <= $min) {
+            $max = $min + 4;
+        }
+
+        $labels = array_map(
+            fn ($p) => Carbon::parse($p['date'])->format('d/m'),
+            $series
+        );
+
+        $count = max(1, count($series) - 1);
         $width = 100;
         $height = 40;
         $pad = 4;
+        $span = max(0.1, $max - $min);
 
         $points = [];
         $dots = [];
-        foreach ($values as $i => $value) {
-            $x = $count === 0 ? 0 : ($i / $count) * $width;
-            $y = $pad + (1 - (($value - $min) / $span)) * ($height - 2 * $pad);
+        foreach ($series as $i => $point) {
+            $x = ($i / $count) * $width;
+            $y = $pad + (1 - (($point['weight'] - $min) / $span)) * ($height - 2 * $pad);
             $points[] = round($x, 2).','.round($y, 2);
-            $dots[] = ['x' => round($x, 2), 'y' => round($y, 2), 'value' => $value];
+            $dots[] = [
+                'x' => round($x, 2),
+                'y' => round($y, 2),
+                'value' => $point['weight'],
+                'date' => $point['date'],
+            ];
         }
 
         return [
+            'series' => $series,
+            'labels' => $labels,
+            'weights' => $weights,
+            'min' => round($min, 1),
+            'max' => round($max, 1),
             'points' => implode(' ', $points),
-            'labels' => $logs->map(fn ($l) => $l->logged_on->format('d/m'))->all(),
-            'min' => $min,
-            'max' => $max,
             'dots' => $dots,
         ];
     }

@@ -399,7 +399,16 @@
             grid-template-columns: 1fr auto;
             gap: .75rem;
             align-items: stretch;
-            min-height: 180px;
+            min-height: 220px;
+        }
+        .weight-chart-canvas-wrap {
+            position: relative;
+            width: 100%;
+            min-height: 220px;
+            background: linear-gradient(180deg, #f7faf8, #fff);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: .5rem .65rem .35rem;
         }
         .weight-chart {
             width: 100%;
