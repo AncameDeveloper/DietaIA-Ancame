@@ -340,7 +340,13 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                     progress = vm.weightProgress,
                     loading = vm.loading,
                     softNotice = vm.softNotice,
+                    message = vm.message,
+                    error = vm.error,
                     onReload = { vm.loadWeightProgress(it) },
+                    onSaveWeight = { weight, date, note ->
+                        vm.saveWeight(weight, date, note)
+                    },
+                    onConsumeMessage = { vm.consumeMessage() },
                 )
             }
         }
@@ -351,6 +357,10 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
             busyLabel = vm.busyLabel,
             message = vm.message,
             error = vm.error,
+            nutritionistContext = vm.nutritionistContext,
+            nutritionistMessages = vm.nutritionistMessages,
+            mealSuggestions = vm.mealSuggestions,
+            mealSuggestionSummary = vm.mealSuggestionSummary,
             onDismiss = { showAiAssistant = false },
             onRegisterMeal = { description ->
                 vm.createMeal(description, "lunch") {
@@ -363,15 +373,10 @@ fun DietaIANav(vm: AppViewModel = viewModel()) {
                 showAiAssistant = false
                 nav.navigate("meals") { launchSingleTop = true }
             },
-            onOpenTips = {
-                showAiAssistant = false
-                nav.navigate("tips") { launchSingleTop = true }
-            },
-            onSuggestDiet = {
-                vm.suggestDiet()
-                showAiAssistant = false
-                nav.navigate("diets") { launchSingleTop = true }
-            },
+            onLoadNutritionistContext = { vm.loadNutritionistContext() },
+            onAskNutritionist = { vm.askNutritionist(it) },
+            onMealSuggestionPrompt = { vm.requestMealSuggestions(it) },
+            onClearNutritionist = { vm.clearNutritionistSession() },
         )
     }
 }

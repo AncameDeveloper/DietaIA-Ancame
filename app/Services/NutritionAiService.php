@@ -289,26 +289,42 @@ PROMPT;
 
     /**
      * Sugerencias de comidas según historial de 3 días, objetivo y huecos de micronutrientes.
+     *
+     * @param  list<array{role?: string, content?: string}>  $history
      */
-    public function suggestBalancedMeals(User $user, string $request): array
+    public function suggestBalancedMeals(User $user, string $request, array $history = []): array
     {
         $context = $this->buildRecentNutritionContext($user);
         $contextJson = json_encode($context, JSON_UNESCAPED_UNICODE);
         $today = now()->toDateString();
         $tomorrow = now()->addDay()->toDateString();
+        $history = collect($history)
+            ->filter(fn ($row) => is_array($row) && filled($row['content'] ?? null))
+            ->take(-8)
+            ->map(fn ($row) => [
+                'role' => in_array(($row['role'] ?? ''), ['user', 'assistant'], true) ? $row['role'] : 'user',
+                'content' => Str::limit((string) $row['content'], 1200, ''),
+            ])
+            ->values()
+            ->all();
+        $historyJson = json_encode($history, JSON_UNESCAPED_UNICODE);
 
         $prompt = <<<PROMPT
 Eres un nutricionista clínico. El usuario pide recomendaciones de comida.
-Petición: {$request}
+Petición actual: {$request}
 Hoy es {$today}. Mañana es {$tomorrow}.
 Contexto del usuario (perfil, objetivo, historial 3 días, micros e ingredientes recientes):
 {$contextJson}
+
+Historial reciente del chat de esta sesión (úsalo para preguntas de seguimiento; p. ej. sustituir un alimento de una sugerencia anterior):
+{$historyJson}
 
 Reglas obligatorias:
 1) Usa el historial de los últimos 3 días para cubrir déficits de vitaminas/minerales y evitar repetir los mismos ingredientes principales.
 2) Respeta el objetivo (lose_weight|maintain|gain_muscle) y calorías/macros objetivo.
 3) Prioriza densidad nutricional, variedad y platos realistas en español.
 4) Si pide "hoy" o "mañana" o un tipo de comida (cena/desayuno...), limítalo a eso; si no, ofrece 2-3 opciones útiles.
+5) Si el mensaje es un seguimiento (cambiar, sustituir, adaptar una sugerencia previa), conserva el resto del plato y aplica solo el cambio pedido.
 
 Responde SOLO JSON válido:
 {
@@ -446,6 +462,12 @@ PROMPT;
         }
 
         return [
+            'age' => $user->profile?->age,
+            'sex' => $user->profile?->sex,
+            'weight_kg' => $user->profile?->weight_kg,
+            'height_cm' => $user->profile?->height_cm,
+            'start_weight_kg' => $user->profile?->start_weight_kg,
+            'target_weight_kg' => $user->profile?->target_weight_kg,
             'goal' => $user->profile?->goal ?? 'lose_weight',
             'calorie_target' => $user->profile?->calorie_target,
             'protein_target_g' => $user->profile?->protein_target_g,
@@ -453,7 +475,7 @@ PROMPT;
             'fat_target_g' => $user->profile?->fat_target_g,
             'restrictions' => $user->profile?->restrictions ?? [],
             'allergies' => $user->profile?->allergies ?? [],
-            'diet_plan' => $user->activeDietAssignment?->dietPlan?->only(['name', 'slug', 'rules']),
+            'diet_plan' => $user->activeDietAssignment?->dietPlan?->only(['name', 'slug', 'description', 'rules']),
             'history_3_days' => $history,
             'totals_3_days' => [
                 'macros' => $macros,
@@ -461,6 +483,98 @@ PROMPT;
             ],
             'recent_ingredients' => collect($ingredients)->unique()->values()->take(40)->all(),
             'likely_gaps' => $likelyGaps,
+        ];
+    }
+
+    /**
+     * Chat libre de nutricionista con contexto automático del usuario.
+     *
+     * @param  list<array{role?: string, content?: string}>  $history
+     * @return array{reply: string, context: array<string, mixed>}
+     */
+    public function nutritionistChat(User $user, string $message, array $history = []): array
+    {
+        $context = $this->buildRecentNutritionContext($user);
+        $contextJson = json_encode($context, JSON_UNESCAPED_UNICODE);
+        $history = collect($history)
+            ->filter(fn ($row) => is_array($row) && filled($row['content'] ?? null))
+            ->take(-8)
+            ->map(fn ($row) => [
+                'role' => in_array(($row['role'] ?? ''), ['user', 'assistant'], true) ? $row['role'] : 'user',
+                'content' => Str::limit((string) $row['content'], 1200, ''),
+            ])
+            ->values()
+            ->all();
+        $historyJson = json_encode($history, JSON_UNESCAPED_UNICODE);
+        $safeMessage = Str::limit(trim($message), 2000, '');
+
+        $prompt = <<<PROMPT
+Eres el nutricionista clínico de DietaIA. Responde en español, con tono profesional, cercano y práctico.
+Adapta SIEMPRE la respuesta al perfil, dieta activa, objetivos y comidas recientes del usuario.
+No inventes datos clínicos ni sustituyas consejo médico; si hay riesgo o patología, recomienda consultar a un profesional.
+
+Contexto automático del usuario (NO lo inventes; úsalo):
+{$contextJson}
+
+Historial reciente del chat (si existe):
+{$historyJson}
+
+Pregunta del usuario:
+{$safeMessage}
+
+Reglas:
+1) Ten en cuenta edad, peso actual, peso objetivo, altura, plan de dieta activo y lo comido en los últimos 3 días.
+2) Si pregunta qué comer, prioriza opciones realistas que respeten calorías/macros restantes y déficits de micros.
+3) Si pregunta sobre ayuno, entrenamiento o ajustes, responde de forma concreta y segura.
+4) Sé breve pero útil (máx. ~180 palabras salvo que pida detalle).
+
+Responde SOLO JSON válido:
+{
+  "reply": "respuesta en texto para el usuario",
+  "focus": ["tema1","tema2"]
+}
+PROMPT;
+
+        $result = $this->requestJson($user, 'nutritionist_chat', $prompt, [], $safeMessage);
+        $reply = trim((string) ($result['reply'] ?? ''));
+        if ($reply === '') {
+            $reply = 'Puedo ayudarte con dudas de nutrición adaptadas a tu perfil y dieta. Reformula la pregunta con un poco más de detalle.';
+        }
+
+        return [
+            'reply' => $reply,
+            'focus' => array_values(array_filter($result['focus'] ?? [])),
+            'context' => $this->publicNutritionistContext($context),
+            'disclaimer' => 'DietaIA ofrece orientación general y no sustituye consejo médico ni nutricional profesional.',
+        ];
+    }
+
+    /**
+     * Resumen seguro para UI (sin volcar todo el historial crudo).
+     *
+     * @param  array<string, mixed>|null  $context
+     * @return array<string, mixed>
+     */
+    public function publicNutritionistContext(?array $context = null, ?User $user = null): array
+    {
+        $context ??= $user ? $this->buildRecentNutritionContext($user) : [];
+
+        return [
+            'age' => $context['age'] ?? null,
+            'weight_kg' => $context['weight_kg'] ?? null,
+            'target_weight_kg' => $context['target_weight_kg'] ?? null,
+            'height_cm' => $context['height_cm'] ?? null,
+            'goal' => $context['goal'] ?? null,
+            'diet_name' => is_array($context['diet_plan'] ?? null)
+                ? ($context['diet_plan']['name'] ?? 'Sin plan activo')
+                : ($context['diet_name'] ?? 'Sin plan activo'),
+            'diet_slug' => is_array($context['diet_plan'] ?? null)
+                ? ($context['diet_plan']['slug'] ?? null)
+                : ($context['diet_slug'] ?? null),
+            'calorie_target' => $context['calorie_target'] ?? null,
+            'meals_recent_count' => count($context['history_3_days'] ?? []),
+            'likely_gaps' => $context['likely_gaps'] ?? [],
+            'based_on_profile' => true,
         ];
     }
 
@@ -492,7 +606,11 @@ PROMPT;
     public function suggestDiet(User $user): array
     {
         $profile = $user->profile;
-        $plans = DietPlan::query()->where('is_active', true)->get(['slug', 'name', 'description']);
+        // Incluir id y macros_ratio: sin id la asignación falla (diet_plan_id null).
+        $plans = DietPlan::query()
+            ->where('is_active', true)
+            ->get(['id', 'slug', 'name', 'description', 'macros_ratio']);
+
         $profileJson = json_encode([
             'age' => $profile?->age,
             'sex' => $profile?->sex,
@@ -504,7 +622,10 @@ PROMPT;
             'allergies' => $profile?->allergies,
         ], JSON_UNESCAPED_UNICODE);
 
-        $plansJson = $plans->toJson(JSON_UNESCAPED_UNICODE);
+        // Solo datos útiles para el prompt (sin id interno).
+        $plansJson = $plans->map(fn (DietPlan $p) => $p->only(['slug', 'name', 'description']))
+            ->values()
+            ->toJson(JSON_UNESCAPED_UNICODE);
 
         $prompt = <<<PROMPT
 Sugiere el plan de dieta más adecuado para pérdida de peso saludable.
@@ -895,6 +1016,10 @@ PROMPT;
                     ['slug' => 'alta-proteina', 'reason' => 'Ayuda a preservar músculo en pérdida de peso.'],
                     ['slug' => 'mediterranea', 'reason' => 'Patrón equilibrado y fácil de mantener.'],
                 ],
+            ],
+            $action === 'nutritionist_chat' => [
+                'reply' => 'Con la información de tu perfil y tu plan activo, prioriza comidas ricas en proteína y vegetales, ajusta las porciones a tu objetivo calórico y evita repetir los mismos platos varios días seguidos. Si tienes una duda concreta (cena, ayuno, entrenamiento…), plantéamela con más detalle.',
+                'focus' => ['perfil', 'dieta', 'historial'],
             ],
             $action === 'progress_tips' => [
                 'summary' => 'Vas por buen camino. Mantén el déficit moderado y la constancia semanal.',

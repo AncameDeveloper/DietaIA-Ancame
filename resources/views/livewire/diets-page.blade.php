@@ -29,7 +29,10 @@
         <div class="success">Plan activo: <strong>{{ $active->dietPlan->name }}</strong> ({{ $active->source }})</div>
     @endif
     @if ($suggestionReason)
-        <div class="alert">{{ $suggestionReason }}</div>
+        <div class="ai-analysis-box">
+            <p class="ai-analysis-title">✨ Análisis del Plan Sugerido por IA</p>
+            <p class="ai-analysis-body">{{ $suggestionReason }}</p>
+        </div>
     @endif
 
     <div class="grid grid-2" wire:loading.class="is-dimmed" wire:target="suggest">

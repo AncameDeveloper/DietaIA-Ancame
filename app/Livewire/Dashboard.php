@@ -38,6 +38,9 @@ class Dashboard extends Component
 
     public ?array $suggestResult = null;
 
+    /** @var list<array{role: string, content: string}> */
+    public array $nutritionistMessages = [];
+
     public string $quickError = '';
 
     public string $quickStatus = '';
@@ -122,16 +125,32 @@ class Dashboard extends Component
             return;
         }
 
+        $previous = $this->assistantMode;
         $this->assistantMode = $mode;
         $this->quickError = '';
         $this->quickStatus = '';
         $this->quickPreview = null;
         $this->quickPreviews = [];
-        $this->suggestResult = null;
         $this->quickPhoto = null;
+
+        // Al salir de Nutricionista IA, reinicia la conversación de la sesión.
+        if ($previous === 'suggest' && $mode === 'register') {
+            $this->resetNutritionistChat();
+        }
+
         if ($mode === 'suggest') {
             $this->ensureNutritionContext();
         }
+    }
+
+    public function resetNutritionistChat(): void
+    {
+        $this->suggestText = '';
+        $this->suggestResult = null;
+        $this->nutritionistMessages = [];
+        $this->quickError = '';
+        $this->quickStatus = '';
+        $this->resetValidation();
     }
 
     private function ensureNutritionContext(): void
@@ -279,29 +298,68 @@ class Dashboard extends Component
         );
     }
 
+    public function sendSuggestionChip(string $text, NutritionAiService $ai): void
+    {
+        $this->suggestText = $text;
+        $this->enviarPregunta($ai);
+    }
+
     public function requestSuggestions(NutritionAiService $ai): void
+    {
+        $this->enviarPregunta($ai);
+    }
+
+    public function enviarPregunta(NutritionAiService $ai): void
     {
         $this->quickError = '';
         $this->quickStatus = '';
-        $this->suggestResult = null;
 
         $data = $this->validate([
-            'suggestText' => ['required', 'string', 'max:2000'],
+            'suggestText' => ['required', 'string', 'min:3', 'max:2000'],
         ], [], [
             'suggestText' => 'petición',
         ]);
 
+        $message = trim((string) $data['suggestText']);
+        $prior = $this->nutritionistMessages;
+        $this->nutritionistMessages = array_values(array_merge($prior, [
+            ['role' => 'user', 'content' => $message],
+        ]));
+
         $this->quickLoading = true;
 
         try {
-            $this->suggestResult = $ai->suggestBalancedMeals(auth()->user(), $data['suggestText']);
-            if (empty($this->suggestResult['suggestions'])) {
-                $this->quickError = 'La IA no devolvió sugerencias. Prueba a reformular la petición.';
+            $looksLikeMealAsk = (bool) preg_match(
+                '/suger|cenar|desayun|almuerzo|comida|plato|receta|men[uú]|prop[oó]n|qu[eé] (puedo|como|comer)|cambiar|sustitu|merluza|salm[oó]n|pollo|opci[oó]n/iu',
+                $message
+            );
+
+            if ($looksLikeMealAsk) {
+                $this->suggestResult = $ai->suggestBalancedMeals(
+                    auth()->user(),
+                    $message,
+                    $prior
+                );
+                $reply = (string) ($this->suggestResult['summary'] ?? 'Aquí tienes opciones adaptadas a tu consulta.');
+                if (empty($this->suggestResult['suggestions'])) {
+                    $this->quickError = 'La IA no devolvió sugerencias. Prueba a reformular la petición.';
+                }
+            } else {
+                $this->suggestResult = null;
+                $chat = $ai->nutritionistChat(auth()->user(), $message, $prior);
+                $reply = (string) ($chat['reply'] ?? 'Puedo ayudarte con esa duda. ¿Quieres que te proponga un plato concreto?');
             }
+
+            $this->nutritionistMessages = array_values(array_merge($this->nutritionistMessages, [
+                ['role' => 'assistant', 'content' => $reply],
+            ]));
         } catch (\Throwable $e) {
-            $this->quickError = 'No se pudieron generar sugerencias. Inténtalo de nuevo.';
+            $this->nutritionistMessages = $prior;
+            $this->quickError = 'No se pudo completar la consulta. Inténtalo de nuevo.';
         } finally {
             $this->quickLoading = false;
+            // Limpia el textbox solo al finalizar el envío.
+            $this->suggestText = '';
         }
     }
 
@@ -398,6 +456,7 @@ class Dashboard extends Component
         $this->quickPreview = null;
         $this->quickPreviews = [];
         $this->suggestResult = null;
+        $this->nutritionistMessages = [];
         $this->quickError = '';
         $this->quickStatus = '';
         $this->quickLoading = false;

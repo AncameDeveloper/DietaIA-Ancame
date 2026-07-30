@@ -50,7 +50,7 @@ class DietPlanController extends Controller
         $suggestion = $ai->suggestDiet($user);
         $plan = $suggestion['recommended'];
 
-        if ($plan) {
+        if ($plan && $plan->id) {
             $user->dietAssignments()->where('is_active', true)->update(['is_active' => false]);
             UserDietAssignment::create([
                 'user_id' => $user->id,

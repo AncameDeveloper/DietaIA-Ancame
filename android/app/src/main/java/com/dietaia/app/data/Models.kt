@@ -98,6 +98,24 @@ data class WeightPointDto(
     val weight: Double,
 )
 
+data class WeightLogRequest(
+    val weight: Double,
+    val date: String? = null,
+    val note: String? = null,
+)
+
+data class WeightLogResponse(
+    val message: String? = null,
+    val log: WeightLogDto? = null,
+    val items: List<WeightPointDto> = emptyList(),
+)
+
+data class WeightLogDto(
+    val date: String,
+    val weight: Double,
+    val note: String? = null,
+)
+
 data class TargetsDto(
     val calories: Double? = null,
     val protein_g: Double? = null,
@@ -212,3 +230,66 @@ data class ProfileUpdateRequest(
 data class DietSelectRequest(val diet_plan_id: Int)
 
 data class MenuGenerateRequest(val horizon: String)
+
+data class NutritionistContextDto(
+    val age: Int? = null,
+    val weight_kg: Double? = null,
+    val target_weight_kg: Double? = null,
+    val height_cm: Double? = null,
+    val goal: String? = null,
+    val diet_name: String? = null,
+    val diet_slug: String? = null,
+    val calorie_target: Int? = null,
+    val meals_recent_count: Int? = null,
+    val likely_gaps: List<String> = emptyList(),
+    val based_on_profile: Boolean? = true,
+)
+
+data class NutritionistContextResponse(
+    val context: NutritionistContextDto? = null,
+    val disclaimer: String? = null,
+)
+
+data class NutritionistChatMessageDto(
+    val role: String,
+    val content: String,
+)
+
+data class NutritionistChatRequest(
+    val message: String,
+    val history: List<NutritionistChatMessageDto> = emptyList(),
+)
+
+data class NutritionistChatResponse(
+    val reply: String,
+    val focus: List<String> = emptyList(),
+    val context: NutritionistContextDto? = null,
+    val disclaimer: String? = null,
+)
+
+data class MealSuggestionsRequest(
+    val request: String,
+    val history: List<NutritionistChatMessageDto> = emptyList(),
+)
+
+data class MealSuggestionDto(
+    val id: String? = null,
+    val target_date: String? = null,
+    val meal_type: String? = null,
+    val meal_type_label: String? = null,
+    val title: String? = null,
+    val description: String? = null,
+    val reason: String? = null,
+    val calories: Double? = null,
+    val protein_g: Double? = null,
+    val carbs_g: Double? = null,
+    val fat_g: Double? = null,
+)
+
+data class MealSuggestionsResponse(
+    val summary: String? = null,
+    val nutrient_focus: List<String> = emptyList(),
+    val suggestions: List<MealSuggestionDto> = emptyList(),
+    val context: NutritionistContextDto? = null,
+    val disclaimer: String? = null,
+)

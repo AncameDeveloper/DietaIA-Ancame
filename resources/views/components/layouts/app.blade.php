@@ -150,6 +150,35 @@
             background: #fff7e8; border: 1px solid #f0d7a8; color: var(--warn);
             padding: .8rem 1rem; border-radius: 12px; margin-bottom: 1rem; font-size: .92rem;
         }
+        .ai-analysis-box {
+            background: #f4faf6;
+            border: 1px solid #d7e0d9;
+            border-radius: 14px;
+            padding: .95rem 1.05rem;
+            margin-bottom: .85rem;
+            color: #1e293b;
+        }
+        .ai-analysis-title {
+            display: flex;
+            align-items: center;
+            gap: .4rem;
+            margin: 0 0 .45rem;
+            font-size: .85rem;
+            font-weight: 700;
+            color: #1f5b3a;
+            letter-spacing: .01em;
+        }
+        .ai-analysis-body {
+            margin: 0;
+            font-size: .95rem;
+            line-height: 1.45;
+            color: #1e293b;
+        }
+        .ai-analysis-focus {
+            margin: .55rem 0 0;
+            font-size: .82rem;
+            color: var(--muted);
+        }
         .success {
             background: #e8f6ee; border: 1px solid #b7dfc5; color: #1f5b3a;
             padding: .8rem 1rem; border-radius: 12px; margin-bottom: 1rem;
@@ -307,6 +336,99 @@
             color: #fff;
             font-weight: 600;
             box-shadow: 0 6px 16px rgba(47, 111, 78, .22);
+        }
+        .nav-toggle {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 2.65rem;
+            height: 2.65rem;
+            padding: 0;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            color: var(--ink);
+            cursor: pointer;
+            flex-shrink: 0;
+            box-shadow: 0 1px 2px rgba(28, 43, 36, .04);
+        }
+        .nav-toggle:hover { background: var(--accent-2); border-color: #c5d6cb; }
+        .nav-toggle:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .nav-toggle-bars {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: .28rem;
+            width: 1.15rem;
+        }
+        .nav-toggle-bars span {
+            display: block;
+            height: 2px;
+            width: 100%;
+            border-radius: 2px;
+            background: currentColor;
+            transition: transform .2s ease, opacity .2s ease;
+            transform-origin: center;
+        }
+        .nav-toggle[aria-expanded="true"] .nav-toggle-bars span:nth-child(1) {
+            transform: translateY(.36rem) rotate(45deg);
+        }
+        .nav-toggle[aria-expanded="true"] .nav-toggle-bars span:nth-child(2) {
+            opacity: 0;
+        }
+        .nav-toggle[aria-expanded="true"] .nav-toggle-bars span:nth-child(3) {
+            transform: translateY(-.36rem) rotate(-45deg);
+        }
+        @keyframes navDropIn {
+            from { opacity: 0; transform: translateY(-.4rem); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @media (max-width: 767.98px) {
+            .site-nav {
+                gap: .75rem;
+                align-items: center;
+            }
+            .site-nav .nav-toggle { display: inline-flex; }
+            .site-nav .nav-links {
+                display: none;
+                flex-basis: 100%;
+                width: 100%;
+                flex-direction: column;
+                align-items: stretch;
+                gap: .45rem;
+                padding: .7rem;
+                margin: 0;
+                box-sizing: border-box;
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                box-shadow: 0 10px 28px rgba(28, 43, 36, .08);
+            }
+            .site-nav .nav-links.is-open {
+                display: flex;
+                animation: navDropIn .22s ease;
+            }
+            .site-nav .nav-links a,
+            .site-nav .nav-links .btn {
+                width: 100%;
+                justify-content: flex-start;
+                box-sizing: border-box;
+            }
+            .site-nav .nav-links form {
+                display: block;
+                width: 100%;
+                margin: 0;
+            }
+        }
+        @media (min-width: 768px) {
+            .site-nav .nav-toggle { display: none !important; }
+            .site-nav .nav-links {
+                display: flex !important;
+                flex-wrap: wrap;
+            }
         }
         .fab-ai-label {
             width: auto;
@@ -584,17 +706,40 @@
 <body>
     <div class="shell">
         @if(auth()->check())
-            <nav class="nav">
+            <nav
+                class="nav site-nav"
+                x-data="{ open: false }"
+                @keydown.escape.window="open = false"
+                @click.outside="open = false"
+            >
                 <x-brand-logo link />
-                <div class="nav-links">
-                    <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'is-active' : '' }}">Hoy</a>
-                    <a href="{{ route('progress') }}" class="{{ request()->routeIs('progress') ? 'is-active' : '' }}">Progreso</a>
-                    <a href="{{ route('meals.create') }}" class="{{ request()->routeIs('meals.create') ? 'is-active' : '' }}">Comida</a>
-                    <a href="{{ route('diets') }}" class="{{ request()->routeIs('diets') ? 'is-active' : '' }}">Dietas</a>
-                    <a href="{{ route('menus') }}" class="{{ request()->routeIs('menus') ? 'is-active' : '' }}">Menús</a>
-                    <a href="{{ route('tips') }}" class="{{ request()->routeIs('tips') ? 'is-active' : '' }}">Consejos</a>
-                    <a href="{{ route('profile') }}" class="{{ request()->routeIs('profile') ? 'is-active' : '' }}">Perfil</a>
-                    <form method="POST" action="{{ route('logout') }}" style="display:inline">
+                <button
+                    type="button"
+                    class="nav-toggle"
+                    @click="open = !open"
+                    :aria-expanded="open.toString()"
+                    aria-controls="site-nav-menu"
+                    aria-label="Abrir menú de navegación"
+                >
+                    <span class="nav-toggle-bars" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
+                </button>
+                <div
+                    id="site-nav-menu"
+                    class="nav-links"
+                    :class="{ 'is-open': open }"
+                >
+                    <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'is-active' : '' }}" @click="open = false">Hoy</a>
+                    <a href="{{ route('progress') }}" class="{{ request()->routeIs('progress') ? 'is-active' : '' }}" @click="open = false">Progreso</a>
+                    <a href="{{ route('meals.create') }}" class="{{ request()->routeIs('meals.create') ? 'is-active' : '' }}" @click="open = false">Comida</a>
+                    <a href="{{ route('diets') }}" class="{{ request()->routeIs('diets') ? 'is-active' : '' }}" @click="open = false">Dietas</a>
+                    <a href="{{ route('menus') }}" class="{{ request()->routeIs('menus') ? 'is-active' : '' }}" @click="open = false">Menús</a>
+                    <a href="{{ route('tips') }}" class="{{ request()->routeIs('tips') ? 'is-active' : '' }}" @click="open = false">Consejos</a>
+                    <a href="{{ route('profile') }}" class="{{ request()->routeIs('profile') ? 'is-active' : '' }}" @click="open = false">Perfil</a>
+                    <form method="POST" action="{{ route('logout') }}">
                         @csrf
                         <button class="btn btn-ghost" type="submit">Salir</button>
                     </form>

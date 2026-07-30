@@ -182,7 +182,7 @@
 
     @if ($showQuickAssistant)
         <x-ai-busy
-            targets="analyzeQuickEntry,requestSuggestions,confirmQuickEntry,acceptSuggestion"
+            targets="analyzeQuickEntry,enviarPregunta,requestSuggestions,confirmQuickEntry,acceptSuggestion"
             :messages="[
                 'Analizando tus datos…',
                 'Consultando al asistente nutricional…',
@@ -210,7 +210,7 @@
                     type="button"
                     class="assistant-tab {{ $assistantMode === 'suggest' ? 'is-active' : '' }}"
                     wire:click="setAssistantMode('suggest')"
-                >Sugerir plan</button>
+                >Nutricionista IA</button>
             </div>
 
             @if ($quickError)
@@ -322,16 +322,37 @@
                     </button>
                 @endif
             @else
+                <div class="nav" style="margin:0 0 .75rem;align-items:flex-start">
+                    <div>
+                        <strong style="display:block">Nutricionista IA</strong>
+                        <span class="muted" style="font-size:.85rem">Conversación con memoria en esta sesión</span>
+                    </div>
+                    <button
+                        type="button"
+                        class="btn btn-ghost"
+                        wire:click="resetNutritionistChat"
+                        wire:loading.attr="disabled"
+                        title="Reiniciar chat"
+                    >🔄 Nueva consulta</button>
+                </div>
+
                 @if ($nutritionContext)
                     <div class="card" style="background:#f7faf8">
-                        <strong>Contexto usado por la IA (3 días)</strong>
+                        <strong>Nutricionista IA · responde con tu perfil y dieta</strong>
                         <p class="muted" style="margin:.35rem 0">
-                            Objetivo:
+                            Plan: {{ $nutritionContext['diet_plan']['name'] ?? 'Sin plan' }}
+                            · Objetivo:
                             {{ match($nutritionContext['goal'] ?? 'lose_weight') {
                                 'gain_muscle' => 'ganar músculo',
                                 'maintain' => 'mantenimiento',
                                 default => 'perder peso',
                             } }}
+                            @if (!empty($nutritionContext['weight_kg']))
+                                · Peso: {{ $nutritionContext['weight_kg'] }} kg
+                            @endif
+                            @if (!empty($nutritionContext['target_weight_kg']))
+                                → {{ $nutritionContext['target_weight_kg'] }} kg
+                            @endif
                             · Comidas recientes: {{ count($nutritionContext['history_3_days'] ?? []) }}
                         </p>
                         @if (!empty($nutritionContext['likely_gaps']))
@@ -343,40 +364,74 @@
                     </div>
                 @endif
 
-                <label>¿Qué necesitas?</label>
-                <textarea
-                    rows="3"
-                    wire:model="suggestText"
-                    placeholder="Ej: Sugiéreme qué cenar mañana para completar vitaminas y minerales"
-                    @disabled($quickLoading)
-                ></textarea>
-                @error('suggestText') <div class="error">{{ $message }}</div> @enderror
+                @php
+                    $userChatMessages = collect($nutritionistMessages ?? [])
+                        ->filter(fn ($msg) => ($msg['role'] ?? '') === 'user')
+                        ->values();
+                    $latestAssistantReply = collect($nutritionistMessages ?? [])
+                        ->filter(fn ($msg) => ($msg['role'] ?? '') === 'assistant')
+                        ->last();
+                    $analysisText = $suggestResult['summary']
+                        ?? ($latestAssistantReply['content'] ?? null);
+                @endphp
 
-                <div class="chip-row">
-                    <button type="button" class="chip" wire:click="$set('suggestText', 'Sugiéreme qué comer hoy para cenar')">Cena hoy</button>
-                    <button type="button" class="chip" wire:click="$set('suggestText', 'Sugiéreme qué puedo comer mañana para completar mis vitaminas')">Vitaminas mañana</button>
-                    <button type="button" class="chip" wire:click="$set('suggestText', 'Propón un almuerzo equilibrado para mañana evitando repetir ingredientes recientes')">Almuerzo variado</button>
-                </div>
+                {{-- 1) Solo burbujas del usuario (derecha) --}}
+                @if ($userChatMessages->isNotEmpty())
+                    <div class="nutritionist-chat" style="display:flex;flex-direction:column;gap:.55rem;margin-bottom:1rem;max-height:220px;overflow:auto">
+                        @foreach ($userChatMessages as $msg)
+                            <div style="align-self:flex-end;max-width:92%;padding:.7rem .85rem;border-radius:14px;background:var(--accent-2);border:1px solid var(--line);color:var(--ink);font-size:.92rem;line-height:1.4">
+                                {{ $msg['content'] ?? '' }}
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
 
-                <div class="nav-links" style="margin: .5rem 0 1rem">
-                    <button
-                        type="button"
-                        class="btn btn-primary"
-                        wire:click="requestSuggestions"
-                        wire:loading.attr="disabled"
-                        wire:target="requestSuggestions"
-                    >
-                        <span wire:loading.remove wire:target="requestSuggestions">Pedir sugerencias IA</span>
-                        <span wire:loading wire:target="requestSuggestions">Pensando…</span>
-                    </button>
-                </div>
+                {{-- 2) Formulario: sin sync en vivo; solo envía al pulsar Enviar --}}
+                <form wire:submit.prevent="enviarPregunta">
+                    <label>¿Qué necesitas? (consulta libre o sugerencia de comida)</label>
+                    <textarea
+                        rows="3"
+                        wire:model="suggestText"
+                        placeholder="Ej: Sugiéreme qué cenar mañana… o ¿Puedo cambiar el salmón por merluza?"
+                        @disabled($quickLoading)
+                    ></textarea>
+                    @error('suggestText') <div class="error">{{ $message }}</div> @enderror
 
+                    <div class="chip-row">
+                        <button type="button" class="chip" wire:click="sendSuggestionChip('Sugiéreme qué comer hoy para cenar')" @disabled($quickLoading)>Cena hoy</button>
+                        <button type="button" class="chip" wire:click="sendSuggestionChip('Sugiéreme qué puedo comer mañana para completar mis vitaminas')" @disabled($quickLoading)>Vitaminas mañana</button>
+                        <button type="button" class="chip" wire:click="sendSuggestionChip('Propón un almuerzo equilibrado para mañana evitando repetir ingredientes recientes')" @disabled($quickLoading)>Almuerzo variado</button>
+                    </div>
+
+                    <div class="nav-links" style="margin: .5rem 0 1rem">
+                        <button
+                            type="submit"
+                            class="btn btn-primary"
+                            wire:loading.attr="disabled"
+                            wire:target="enviarPregunta,sendSuggestionChip"
+                        >
+                            <span wire:loading.remove wire:target="enviarPregunta,sendSuggestionChip">Enviar</span>
+                            <span wire:loading wire:target="enviarPregunta,sendSuggestionChip">Pensando…</span>
+                        </button>
+                    </div>
+                </form>
+
+                {{-- 3) Única caja de respuesta de la IA --}}
+                @if (filled($analysisText))
+                    <div class="ai-analysis-box">
+                        <p class="ai-analysis-title">✨ Análisis del Nutricionista IA</p>
+                        <p class="ai-analysis-body">{{ $analysisText }}</p>
+                        @if (!empty($suggestResult['nutrient_focus']))
+                            <p class="ai-analysis-focus">
+                                Enfoque:
+                                {{ collect($suggestResult['nutrient_focus'])->map(fn ($n) => str_replace('_', ' ', $n))->join(', ') }}
+                            </p>
+                        @endif
+                    </div>
+                @endif
+
+                {{-- 4) Tarjetas de comidas sugeridas --}}
                 @if ($suggestResult)
-                    <div class="alert" style="margin-bottom:.85rem">{{ $suggestResult['summary'] ?? '' }}</div>
-                    @if (!empty($suggestResult['nutrient_focus']))
-                        <p class="muted">Enfoque: {{ collect($suggestResult['nutrient_focus'])->map(fn ($n) => str_replace('_', ' ', $n))->join(', ') }}</p>
-                    @endif
-
                     @forelse (($suggestResult['suggestions'] ?? []) as $suggestion)
                         <div class="card" style="background:var(--accent-2)">
                             <div class="nav" style="margin:0 0 .4rem">

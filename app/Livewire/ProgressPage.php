@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Models\DailySummary;
 use App\Models\WeightLog;
 use App\Services\NutritionAiService;
+use App\Services\WeightLogService;
 use App\Support\Labels;
 use Carbon\Carbon;
 use Livewire\Attributes\Layout;
@@ -23,6 +24,9 @@ class ProgressPage extends Component
 
     public string $note = '';
 
+    /** Fecha del registro (YYYY-MM-DD). */
+    public string $loggedOn = '';
+
     public array $aiTips = [];
 
     public string $aiSummary = '';
@@ -31,6 +35,8 @@ class ProgressPage extends Component
 
     public function mount(): void
     {
+        $this->loggedOn = now()->toDateString();
+
         $profile = auth()->user()->profile;
         $this->todayWeight = $profile?->weight_kg ? (float) $profile->weight_kg : null;
         $this->targetWeight = $profile?->target_weight_kg ? (float) $profile->target_weight_kg : null;
@@ -38,17 +44,15 @@ class ProgressPage extends Component
             ? (float) $profile->start_weight_kg
             : ($profile?->weight_kg ? (float) $profile->weight_kg : null);
 
-        $todayLog = WeightLog::query()
-            ->where('user_id', auth()->id())
-            ->whereDate('logged_on', now()->toDateString())
-            ->first();
-
-        if ($todayLog) {
-            $this->todayWeight = (float) $todayLog->weight_kg;
-        }
+        $this->hydrateWeightForSelectedDate();
     }
 
-    public function saveWeight(): void
+    public function updatedLoggedOn(): void
+    {
+        $this->hydrateWeightForSelectedDate();
+    }
+
+    public function saveWeight(WeightLogService $weights): void
     {
         $this->errorMessage = '';
 
@@ -57,38 +61,55 @@ class ProgressPage extends Component
             'targetWeight' => ['nullable', 'numeric', 'min:30', 'max:300'],
             'startWeight' => ['nullable', 'numeric', 'min:30', 'max:300'],
             'note' => ['nullable', 'string', 'max:255'],
+            'loggedOn' => ['required', 'date', 'before_or_equal:today'],
+        ], [
+            'todayWeight.required' => 'Indica el peso en kg.',
+            'todayWeight.min' => 'El peso debe ser al menos 30 kg.',
+            'todayWeight.max' => 'El peso no puede superar 300 kg.',
+            'loggedOn.before_or_equal' => 'No se puede registrar peso en una fecha futura.',
         ]);
 
-        $user = auth()->user();
-        $profile = $user->profile()->firstOrCreate([]);
+        try {
+            $weights->upsert(
+                auth()->user(),
+                (float) $data['todayWeight'],
+                (string) $data['loggedOn'],
+                $data['note'] ?? null,
+                isset($data['startWeight']) ? (float) $data['startWeight'] : null,
+                isset($data['targetWeight']) ? (float) $data['targetWeight'] : null,
+            );
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'No se pudo guardar el peso. Inténtalo de nuevo.';
 
-        if (! $profile->start_weight_kg && empty($data['startWeight'])) {
-            $data['startWeight'] = $profile->weight_kg ? (float) $profile->weight_kg : $data['todayWeight'];
+            return;
         }
 
-        WeightLog::query()->updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'logged_on' => now()->toDateString(),
-            ],
-            [
-                'weight_kg' => $data['todayWeight'],
-                'note' => $data['note'] ?: null,
-            ]
-        );
-
-        $profile->fill([
-            'weight_kg' => $data['todayWeight'],
-            'start_weight_kg' => $data['startWeight'] ?? $profile->start_weight_kg ?? $data['todayWeight'],
-            'target_weight_kg' => $data['targetWeight'] ?? $profile->target_weight_kg,
-        ])->save();
-
-        $this->startWeight = (float) $profile->start_weight_kg;
-        $this->targetWeight = $profile->target_weight_kg ? (float) $profile->target_weight_kg : null;
+        $profile = auth()->user()->fresh()->profile;
+        $this->startWeight = $profile?->start_weight_kg ? (float) $profile->start_weight_kg : $this->startWeight;
+        $this->targetWeight = $profile?->target_weight_kg ? (float) $profile->target_weight_kg : $this->targetWeight;
         $this->aiTips = [];
         $this->aiSummary = '';
 
-        session()->flash('status', 'Peso de hoy registrado.');
+        $label = Carbon::parse($data['loggedOn'])->format('d/m/Y');
+        session()->flash('status', "Peso del {$label} registrado.");
+        $this->dispatch('weight-saved');
+    }
+
+    private function hydrateWeightForSelectedDate(): void
+    {
+        if ($this->loggedOn === '') {
+            $this->loggedOn = now()->toDateString();
+        }
+
+        $log = WeightLog::query()
+            ->where('user_id', auth()->id())
+            ->whereDate('logged_on', $this->loggedOn)
+            ->first();
+
+        if ($log) {
+            $this->todayWeight = (float) $log->weight_kg;
+            $this->note = (string) ($log->note ?? '');
+        }
     }
 
     public function refreshAiTips(NutritionAiService $ai): void

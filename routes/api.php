@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AiController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DietPlanController;
 use App\Http\Controllers\Api\MealController;
@@ -35,6 +36,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/today', [DashboardController::class, 'today']);
     Route::get('/dashboard/micronutrients', [MicronutrientController::class, 'index']);
     Route::get('/progress/weight', [ProgressController::class, 'weight']);
+    Route::post('/progress/weight', [ProgressController::class, 'storeWeight'])->middleware('throttle:60,1');
+    Route::post('/weight', [ProgressController::class, 'storeWeight'])->middleware('throttle:60,1');
 
     Route::get('/menus', [MenuController::class, 'index']);
     Route::get('/menus/latest', [MenuController::class, 'latest']);
@@ -44,4 +47,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/menu/shopping-list', [MenuController::class, 'shoppingList'])->middleware('throttle:30,1');
 
     Route::get('/tips', [TipController::class, 'index'])->middleware('throttle:20,1');
+
+    Route::get('/ai/nutritionist-context', [AiController::class, 'nutritionistContext']);
+    Route::post('/ai/nutritionist-chat', [AiController::class, 'nutritionistChat'])->middleware('throttle:20,1');
+    Route::post('/ai/meal-suggestions', [AiController::class, 'mealSuggestions'])->middleware('throttle:10,1');
 });

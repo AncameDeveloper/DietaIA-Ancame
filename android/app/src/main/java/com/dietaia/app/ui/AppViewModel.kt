@@ -7,22 +7,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.dietaia.app.data.ApiClient
-import com.dietaia.app.data.DashboardResponse
-import com.dietaia.app.data.DietPlanDto
-import com.dietaia.app.data.DietSelectRequest
-import com.dietaia.app.data.GoogleAuthRequest
-import com.dietaia.app.data.LoginRequest
-import com.dietaia.app.data.MealCreateRequest
-import com.dietaia.app.data.MenuGenerateRequest
-import com.dietaia.app.data.MicronutrientsResponse
-import com.dietaia.app.data.RegisterRequest
-import com.dietaia.app.data.ShoppingListItemDto
-import com.dietaia.app.data.ShoppingListRequest
-import com.dietaia.app.data.TipDto
-import com.dietaia.app.data.UserDto
-import com.dietaia.app.data.WeeklyMenuDto
+import com.dietaia.app.data.MealSuggestionDto
+import com.dietaia.app.data.MealSuggestionsRequest
+import com.dietaia.app.data.NutritionistChatMessageDto
+import com.dietaia.app.data.NutritionistChatRequest
+import com.dietaia.app.data.NutritionistContextDto
+import com.dietaia.app.data.WeightLogRequest
 import com.dietaia.app.data.WeightProgressResponse
+import com.dietaia.app.data.WeeklyMenuDto
+import com.dietaia.app.data.UserDto
+import com.dietaia.app.data.TipDto
+import com.dietaia.app.data.ShoppingListRequest
+import com.dietaia.app.data.ShoppingListItemDto
+import com.dietaia.app.data.RegisterRequest
+import com.dietaia.app.data.MicronutrientsResponse
+import com.dietaia.app.data.MenuGenerateRequest
+import com.dietaia.app.data.MealCreateRequest
+import com.dietaia.app.data.LoginRequest
+import com.dietaia.app.data.GoogleAuthRequest
+import com.dietaia.app.data.DietSelectRequest
+import com.dietaia.app.data.DietPlanDto
+import com.dietaia.app.data.DashboardResponse
+import com.dietaia.app.data.ApiClient
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -82,6 +88,14 @@ class AppViewModel : ViewModel() {
         private set
     var tips by mutableStateOf<List<TipDto>>(emptyList())
         private set
+    var nutritionistContext by mutableStateOf<NutritionistContextDto?>(null)
+        private set
+    var nutritionistMessages by mutableStateOf<List<NutritionistChatMessageDto>>(emptyList())
+        private set
+    var mealSuggestions by mutableStateOf<List<MealSuggestionDto>>(emptyList())
+        private set
+    var mealSuggestionSummary by mutableStateOf<String?>(null)
+        private set
 
     companion object {
         private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
@@ -111,6 +125,10 @@ class AppViewModel : ViewModel() {
         message = null
     }
 
+    fun consumeMessage() {
+        message = null
+    }
+
     fun consumeRequireLogin() {
         requireLogin = false
     }
@@ -124,6 +142,10 @@ class AppViewModel : ViewModel() {
         weightProgress = null
         dietPlans = emptyList()
         tips = emptyList()
+        nutritionistContext = null
+        nutritionistMessages = emptyList()
+        mealSuggestions = emptyList()
+        mealSuggestionSummary = null
         dailyMenu = null
         weeklyMenu = null
         menu = null
@@ -452,6 +474,136 @@ class AppViewModel : ViewModel() {
                 endBusy()
             }
         }
+    }
+
+    fun saveWeight(weightKg: Double, dateIso: String, note: String? = null, onDone: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            beginBusy(listOf("Guardando peso…"))
+            error = null
+            softNotice = null
+            message = null
+            try {
+                val capped = minOf(LocalDate.parse(dateIso.take(10), ISO_DATE), LocalDate.now())
+                    .format(ISO_DATE)
+                api.storeWeight(
+                    WeightLogRequest(
+                        weight = weightKg,
+                        date = capped,
+                        note = note?.takeIf { it.isNotBlank() },
+                    ),
+                )
+                val days = weightProgress?.days ?: 90
+                weightProgress = api.weightProgress(days)
+                message = "Peso registrado (${capped.take(10)})"
+                onDone?.invoke()
+            } catch (e: Exception) {
+                reportError(e)
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
+    fun loadNutritionistContext() {
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            try {
+                val res = api.nutritionistContext()
+                nutritionistContext = res.context
+            } catch (e: Exception) {
+                reportSoftFailure(e, "No se pudo cargar el contexto del nutricionista.")
+            }
+        }
+    }
+
+    fun askNutritionist(messageText: String) {
+        val trimmed = messageText.trim()
+        if (trimmed.length < 3) {
+            error = "Escribe una pregunta un poco más concreta."
+            return
+        }
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            beginBusy(
+                listOf(
+                    "Revisando tu perfil y dieta…",
+                    "Analizando comidas recientes…",
+                    "Preparando la respuesta…",
+                    "Casi listo…",
+                ),
+            )
+            error = null
+            softNotice = null
+            val prior = nutritionistMessages
+            nutritionistMessages = prior + NutritionistChatMessageDto(role = "user", content = trimmed)
+            try {
+                val res = api.nutritionistChat(
+                    NutritionistChatRequest(
+                        message = trimmed,
+                        history = prior.takeLast(8),
+                    ),
+                )
+                nutritionistContext = res.context ?: nutritionistContext
+                nutritionistMessages = nutritionistMessages + NutritionistChatMessageDto(
+                    role = "assistant",
+                    content = res.reply,
+                )
+            } catch (e: Exception) {
+                nutritionistMessages = prior
+                reportError(e)
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
+    fun requestMealSuggestions(prompt: String) {
+        val trimmed = prompt.trim()
+        if (trimmed.length < 3) return
+        viewModelScope.launch {
+            if (!ensureAuthed()) return@launch
+            beginBusy(
+                listOf(
+                    "Mirando tu historial…",
+                    "Buscando huecos de nutrientes…",
+                    "Preparando sugerencias…",
+                    "Casi listo…",
+                ),
+            )
+            error = null
+            val prior = nutritionistMessages
+            nutritionistMessages = prior + NutritionistChatMessageDto(role = "user", content = trimmed)
+            try {
+                val res = api.mealSuggestions(
+                    MealSuggestionsRequest(
+                        request = trimmed,
+                        history = prior.takeLast(8),
+                    ),
+                )
+                mealSuggestions = res.suggestions
+                mealSuggestionSummary = res.summary
+                nutritionistContext = res.context ?: nutritionistContext
+                nutritionistMessages = nutritionistMessages + NutritionistChatMessageDto(
+                    role = "assistant",
+                    content = res.summary?.takeIf { it.isNotBlank() }
+                        ?: "Aquí tienes opciones adaptadas a tu perfil y comidas recientes.",
+                )
+            } catch (e: Exception) {
+                nutritionistMessages = prior
+                reportError(e)
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
+    fun clearNutritionistSession() {
+        nutritionistMessages = emptyList()
+        mealSuggestions = emptyList()
+        mealSuggestionSummary = null
+        error = null
+        softNotice = null
     }
 
     fun selectDiet(id: Int) {

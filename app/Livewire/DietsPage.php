@@ -44,7 +44,7 @@ class DietsPage extends Component
         $plan = $result['recommended'];
         $this->suggestionReason = $result['reason'] ?? null;
 
-        if ($plan) {
+        if ($plan && $plan->id) {
             $user->dietAssignments()->where('is_active', true)->update(['is_active' => false]);
             UserDietAssignment::create([
                 'user_id' => $user->id,
@@ -57,7 +57,11 @@ class DietsPage extends Component
                 $calories->applyToProfile($user->profile, $plan->macros_ratio);
             }
             session()->flash('status', "IA recomienda: {$plan->name}");
+
+            return;
         }
+
+        $this->suggestionReason = 'No se pudo elegir un plan. Inténtalo de nuevo o selecciona uno manualmente.';
     }
 
     public function render()

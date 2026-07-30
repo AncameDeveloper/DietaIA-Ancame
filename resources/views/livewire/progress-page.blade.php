@@ -4,11 +4,20 @@
             <h1 style="margin:0">Progreso</h1>
             <p class="muted" style="margin:.25rem 0 0">Seguimiento de peso, rachas y consejos personalizados</p>
         </div>
-        <button type="button" class="btn btn-primary" wire:click="saveWeight">Registrar peso de hoy</button>
+        <a href="#weight-form" class="btn btn-primary">Registrar peso</a>
     </div>
 
     @if ($errorMessage)
         <div class="error">{{ $errorMessage }}</div>
+    @endif
+    @if ($errors->any())
+        <div class="error">
+            <ul style="margin:0;padding-left:1.1rem">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
     @endif
 
     <div class="grid grid-3">
@@ -40,25 +49,60 @@
         </p>
     </div>
 
-    <div class="card">
-        <h2 style="margin-top:0">Registrar peso de hoy</h2>
+    <div class="card" id="weight-form">
+        <h2 style="margin-top:0">Registrar peso</h2>
         <div class="grid grid-3">
             <div>
-                <label>Peso de hoy (kg)</label>
-                <input type="number" step="0.1" wire:model="todayWeight">
+                <label for="loggedOn">Fecha del registro</label>
+                <input
+                    id="loggedOn"
+                    type="date"
+                    max="{{ now()->toDateString() }}"
+                    wire:model.live="loggedOn"
+                >
+                @error('loggedOn') <div class="error" style="margin-top:-.5rem;margin-bottom:.75rem">{{ $message }}</div> @enderror
             </div>
             <div>
-                <label>Peso inicial (kg)</label>
-                <input type="number" step="0.1" wire:model="startWeight">
+                <label for="todayWeight">Peso (kg)</label>
+                <input
+                    id="todayWeight"
+                    type="number"
+                    step="0.1"
+                    min="30"
+                    max="300"
+                    inputmode="decimal"
+                    wire:model.live="todayWeight"
+                    placeholder="Ej: 72.5"
+                >
+                @error('todayWeight') <div class="error" style="margin-top:-.5rem;margin-bottom:.75rem">{{ $message }}</div> @enderror
             </div>
             <div>
-                <label>Peso objetivo (kg)</label>
-                <input type="number" step="0.1" wire:model="targetWeight">
+                <label for="startWeight">Peso inicial (kg)</label>
+                <input id="startWeight" type="number" step="0.1" min="30" max="300" wire:model.live="startWeight">
+                @error('startWeight') <div class="error" style="margin-top:-.5rem;margin-bottom:.75rem">{{ $message }}</div> @enderror
             </div>
         </div>
-        <label>Nota (opcional)</label>
-        <input type="text" wire:model="note" placeholder="Ej: en ayunas">
-        <button type="button" class="btn btn-primary" wire:click="saveWeight">Guardar peso</button>
+        <div class="grid grid-2">
+            <div>
+                <label for="targetWeight">Peso objetivo (kg)</label>
+                <input id="targetWeight" type="number" step="0.1" min="30" max="300" wire:model.live="targetWeight">
+                @error('targetWeight') <div class="error" style="margin-top:-.5rem;margin-bottom:.75rem">{{ $message }}</div> @enderror
+            </div>
+            <div>
+                <label for="weightNote">Nota (opcional)</label>
+                <input id="weightNote" type="text" wire:model.live="note" placeholder="Ej: en ayunas">
+            </div>
+        </div>
+        <button
+            type="button"
+            class="btn btn-primary"
+            wire:click="saveWeight"
+            wire:loading.attr="disabled"
+            wire:target="saveWeight"
+        >
+            <span wire:loading.remove wire:target="saveWeight">Guardar peso</span>
+            <span wire:loading wire:target="saveWeight">Guardando…</span>
+        </button>
     </div>
 
     <div class="card">
@@ -242,5 +286,6 @@
     schedulePaint();
     Livewire.hook('morph.updated', () => schedulePaint());
     document.addEventListener('livewire:navigated', schedulePaint);
+    Livewire.on('weight-saved', () => schedulePaint());
 </script>
 @endscript

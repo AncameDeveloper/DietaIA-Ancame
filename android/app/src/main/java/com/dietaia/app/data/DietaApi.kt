@@ -38,6 +38,9 @@ interface DietaApi {
     @GET("progress/weight")
     suspend fun weightProgress(@Query("days") days: Int = 90): WeightProgressResponse
 
+    @POST("progress/weight")
+    suspend fun storeWeight(@Body body: WeightLogRequest): WeightLogResponse
+
     @GET("profile")
     suspend fun profile(): UserDto
 
@@ -78,6 +81,15 @@ interface DietaApi {
 
     @GET("tips")
     suspend fun tips(@Query("refresh") refresh: Boolean = false): TipsResponse
+
+    @GET("ai/nutritionist-context")
+    suspend fun nutritionistContext(): NutritionistContextResponse
+
+    @POST("ai/nutritionist-chat")
+    suspend fun nutritionistChat(@Body body: NutritionistChatRequest): NutritionistChatResponse
+
+    @POST("ai/meal-suggestions")
+    suspend fun mealSuggestions(@Body body: MealSuggestionsRequest): MealSuggestionsResponse
 
     @PUT("profile")
     suspend fun updateProfile(@Body body: ProfileUpdateRequest): UserDto
